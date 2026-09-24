@@ -10,7 +10,7 @@ starts only after you confirm.
 - [ ] Remote forwarding (`-R`) in addition to local (`-L`)
 - [ ] Dynamic/SOCKS forwarding (`-D`)
 - [ ] Multiple simultaneous forwards through one ssh connection (multiplex, `-J`/`ControlMaster`)
-- [ ] Auto-reconnect a tunnel if it drops (retry with backoff)
+- [x] Auto-reconnect a tunnel if it drops (retry with backoff) — capped exponential backoff (2s→4s→8s→16s→30s), gives up after 6 consecutive failures rather than retrying a permanently dead host forever; surfaces as a "Retrying" status with a countdown, and finally becomes a failure (shown in the banner) once it gives up
 - [x] Named/saved forwards — every started tunnel is saved automatically (deduped by connection), no separate "preset" concept or manual save step; stopping a tunnel keeps it in the list so it's a one-click Start away, Delete removes it for good
 - [ ] Edit an existing forward without stopping/recreating it
 - [ ] Duplicate a running forward with one click
@@ -35,7 +35,7 @@ starts only after you confirm.
 
 ## Reliability / diagnostics
 
-- [x] Per-tunnel live status (connecting / connected) — probes the local port each poll; no "retrying" state since that implies auto-reconnect, which isn't built
+- [x] Per-tunnel live status (connecting / connected / retrying) — probes the local port each poll; retrying added alongside auto-reconnect below
 - [x] Show ssh stderr/log tail for a running tunnel, not just on death — background reader keeps a 200-line ring buffer, viewable via the per-tunnel "Log" toggle
 - [x] Latency/health check ping on the forwarded port — same probe reports round-trip ms next to the host
 - [ ] Configurable ssh options per tunnel (ServerAliveInterval, compression, etc.) instead of fixed defaults

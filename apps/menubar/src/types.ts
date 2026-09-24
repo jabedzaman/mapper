@@ -5,7 +5,7 @@ export interface SshHost {
   port: number | null;
 }
 
-export type TunnelStatus = "connecting" | "connected";
+export type TunnelStatus = "connecting" | "connected" | "retrying";
 
 /**
  * A saved tunnel's persisted identity plus whatever live runtime state it
@@ -23,6 +23,9 @@ export interface Tunnel {
   status: TunnelStatus | null;
   latencyMs: number | null;
   pid: number | null;
+  /** Set only while `status` is "retrying". */
+  retryAttempt: number | null;
+  retryInSecs: number | null;
 }
 
 export interface TunnelFailure {

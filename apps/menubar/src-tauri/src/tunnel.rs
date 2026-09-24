@@ -14,6 +14,17 @@ const SIGNATURE_FLAGS: [&str; 2] = ["ExitOnForwardFailure=yes", "BatchMode=yes"]
 const LOG_CAPACITY: usize = 200;
 const HEALTH_PROBE_TIMEOUT: Duration = Duration::from_millis(400);
 
+/// Backoff schedule for auto-reconnect, indexed by attempt number (capped
+/// at the last entry). After `MAX_RETRY_ATTEMPTS` consecutive failures we
+/// give up rather than retry a permanently dead host forever.
+const RETRY_DELAYS_SECS: [u64; 5] = [2, 4, 8, 16, 30];
+const MAX_RETRY_ATTEMPTS: u32 = 6;
+
+fn retry_delay(attempt: u32) -> Duration {
+    let idx = (attempt as usize).min(RETRY_DELAYS_SECS.len() - 1);
+    Duration::from_secs(RETRY_DELAYS_SECS[idx])
+}
+
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum TunnelStatus {
@@ -21,6 +32,8 @@ pub enum TunnelStatus {
     Connecting,
     /// Process is running and the local port answered a probe connection.
     Connected,
+    /// The process died and we're waiting to try spawning it again.
+    Retrying,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -31,9 +44,12 @@ pub struct TunnelInfo {
     pub local_port: u16,
     pub remote_host: String,
     pub remote_port: u16,
-    pub pid: u32,
+    pub pid: Option<u32>,
     pub status: TunnelStatus,
-    pub latency_ms: Option<u64>,
+    pub latency_ms: Option<f64>,
+    /// Set only while `status` is `Retrying`.
+    pub retry_attempt: Option<u32>,
+    pub retry_in_secs: Option<u64>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -59,9 +75,21 @@ pub struct OrphanedProcess {
 
 type LogBuffer = Arc<Mutex<VecDeque<String>>>;
 
+/// A tunnel is either actually forwarding right now, or between attempts
+/// after dying, waiting for its backoff timer.
+enum Runtime {
+    Running { child: Child, pid: u32 },
+    Retrying { attempt: u32, next_attempt: Instant, last_error: String },
+}
+
 struct TunnelHandle {
-    child: Child,
-    info: TunnelInfo,
+    ssh_host: String,
+    local_port: u16,
+    remote_host: String,
+    remote_port: u16,
+    runtime: Runtime,
+    /// Persists across respawns — reconnect attempts keep appending to the
+    /// same history instead of each attempt starting a fresh empty log.
     log: LogBuffer,
 }
 
@@ -92,12 +120,66 @@ fn spawn_log_reader(stderr: std::process::ChildStderr, log: LogBuffer) {
 /// Attempts a short TCP connect to the forwarded local port. `Some(ms)` on
 /// success (the forward is actually accepting connections), `None` if it
 /// isn't up yet or the probe times out.
-fn probe_local_port(local_port: u16) -> Option<u64> {
+///
+/// Sub-millisecond precision matters here: this is a loopback connect, so
+/// it routinely completes in well under 1ms — `.as_millis() as u64` would
+/// truncate every real reading down to 0.
+fn probe_local_port(local_port: u16) -> Option<f64> {
     let addr = format!("127.0.0.1:{local_port}").parse().ok()?;
     let start = Instant::now();
     TcpStream::connect_timeout(&addr, HEALTH_PROBE_TIMEOUT)
         .ok()
-        .map(|_| start.elapsed().as_millis() as u64)
+        .map(|_| start.elapsed().as_secs_f64() * 1000.0)
+}
+
+/// The actual `ssh -L ...` spawn, shared between a fresh start and a
+/// reconnect attempt.
+fn spawn_ssh(
+    ssh_host: &str,
+    local_port: u16,
+    remote_host: &str,
+    remote_port: u16,
+    log: &LogBuffer,
+) -> Result<(Child, u32), String> {
+    let forward_spec = format!("{local_port}:{remote_host}:{remote_port}");
+
+    let mut child = Command::new("ssh")
+        .args([
+            "-N", // no remote command, just forward
+            "-o",
+            SIGNATURE_FLAGS[0],
+            "-o",
+            SIGNATURE_FLAGS[1], // never block on an interactive password prompt
+            "-o",
+            "ServerAliveInterval=30",
+            "-o",
+            "ServerAliveCountMax=3",
+            "-L",
+            &forward_spec,
+            ssh_host,
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("failed to launch ssh: {e}"))?;
+
+    if let Some(stderr) = child.stderr.take() {
+        spawn_log_reader(stderr, log.clone());
+    }
+
+    let pid = child.id();
+    Ok((child, pid))
+}
+
+fn last_log_line(log: &LogBuffer) -> String {
+    log.lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| "ssh exited unexpectedly".to_string())
 }
 
 impl TunnelState {
@@ -115,120 +197,182 @@ impl TunnelState {
             return Err(format!("tunnel {id} is already running"));
         }
 
-        let forward_spec = format!("{local_port}:{remote_host}:{remote_port}");
-
-        let mut child = Command::new("ssh")
-            .args([
-                "-N", // no remote command, just forward
-                "-o",
-                SIGNATURE_FLAGS[0],
-                "-o",
-                SIGNATURE_FLAGS[1], // never block on an interactive password prompt
-                "-o",
-                "ServerAliveInterval=30",
-                "-o",
-                "ServerAliveCountMax=3",
-                "-L",
-                &forward_spec,
-                &ssh_host,
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("failed to launch ssh: {e}"))?;
-
         let log: LogBuffer = Arc::new(Mutex::new(VecDeque::with_capacity(LOG_CAPACITY)));
-        if let Some(stderr) = child.stderr.take() {
-            spawn_log_reader(stderr, log.clone());
-        }
-
-        let info = TunnelInfo {
-            id: id.clone(),
-            ssh_host,
-            local_port,
-            remote_host,
-            remote_port,
-            pid: child.id(),
-            status: TunnelStatus::Connecting,
-            latency_ms: None,
-        };
+        let (child, pid) = spawn_ssh(&ssh_host, local_port, &remote_host, remote_port, &log)?;
 
         self.tunnels.lock().unwrap().insert(
-            id,
+            id.clone(),
             TunnelHandle {
-                child,
-                info: info.clone(),
+                ssh_host: ssh_host.clone(),
+                local_port,
+                remote_host: remote_host.clone(),
+                remote_port,
+                runtime: Runtime::Running { child, pid },
                 log,
             },
         );
 
-        Ok(info)
+        Ok(TunnelInfo {
+            id,
+            ssh_host,
+            local_port,
+            remote_host,
+            remote_port,
+            pid: Some(pid),
+            status: TunnelStatus::Connecting,
+            latency_ms: None,
+            retry_attempt: None,
+            retry_in_secs: None,
+        })
     }
 
+    /// Manual stop: always fully removes tracking, killing the process if
+    /// one is currently running, or just cancelling a pending retry.
     pub fn stop(&self, id: &str) -> Result<(), String> {
         let mut tunnels = self.tunnels.lock().unwrap();
         let Some(mut handle) = tunnels.remove(id) else {
             return Err(format!("no tunnel with id {id}"));
         };
-        handle
-            .child
-            .kill()
-            .map_err(|e| format!("failed to stop tunnel: {e}"))?;
-        let _ = handle.child.wait();
+        if let Runtime::Running { child, .. } = &mut handle.runtime {
+            child.kill().map_err(|e| format!("failed to stop tunnel: {e}"))?;
+            let _ = child.wait();
+        }
         Ok(())
     }
 
-    /// Prunes ssh processes that exited on their own, probes the survivors'
-    /// local ports to refresh status/latency, and returns the live list.
+    /// Advances retry timers, reaps dead processes into either a retry
+    /// attempt or a permanent failure, probes survivors' ports, and
+    /// returns the current view of everything still tracked.
     pub fn list(&self) -> Vec<TunnelInfo> {
         let mut tunnels = self.tunnels.lock().unwrap();
+        let now = Instant::now();
 
-        let dead: Vec<String> = tunnels
+        // 1. Processes that exited on their own since the last poll become
+        //    a first retry attempt instead of an immediate failure.
+        let newly_dead: Vec<String> = tunnels
             .iter_mut()
-            .filter_map(|(id, handle)| match handle.child.try_wait() {
-                Ok(Some(_)) => Some(id.clone()),
+            .filter_map(|(id, handle)| match &mut handle.runtime {
+                Runtime::Running { child, .. } => match child.try_wait() {
+                    Ok(Some(_)) => Some(id.clone()),
+                    _ => None,
+                },
+                Runtime::Retrying { .. } => None,
+            })
+            .collect();
+
+        for id in &newly_dead {
+            if let Some(handle) = tunnels.get_mut(id) {
+                let last_error = last_log_line(&handle.log);
+                handle.runtime = Runtime::Retrying {
+                    attempt: 0,
+                    next_attempt: now + retry_delay(0),
+                    last_error,
+                };
+            }
+        }
+
+        // 2. Anything due for a retry attempt gets one. Success moves it
+        //    back to Running; failure either schedules the next attempt or,
+        //    past MAX_RETRY_ATTEMPTS, gives up for good.
+        let due: Vec<String> = tunnels
+            .iter()
+            .filter_map(|(id, handle)| match &handle.runtime {
+                Runtime::Retrying { next_attempt, .. } if now >= *next_attempt => {
+                    Some(id.clone())
+                }
                 _ => None,
             })
             .collect();
 
-        if !dead.is_empty() {
+        let mut gave_up = Vec::new();
+        for id in due {
+            let Some(handle) = tunnels.get_mut(&id) else { continue };
+            let Runtime::Retrying { attempt, last_error, .. } = &handle.runtime else {
+                continue;
+            };
+            let attempt = *attempt;
+            let last_error = last_error.clone();
+
+            match spawn_ssh(
+                &handle.ssh_host,
+                handle.local_port,
+                &handle.remote_host,
+                handle.remote_port,
+                &handle.log,
+            ) {
+                Ok((child, pid)) => {
+                    handle.runtime = Runtime::Running { child, pid };
+                }
+                Err(spawn_err) => {
+                    let next = attempt + 1;
+                    if next >= MAX_RETRY_ATTEMPTS {
+                        gave_up.push((id.clone(), last_error));
+                    } else {
+                        handle.runtime = Runtime::Retrying {
+                            attempt: next,
+                            next_attempt: now + retry_delay(next),
+                            last_error: spawn_err,
+                        };
+                    }
+                }
+            }
+        }
+
+        if !gave_up.is_empty() {
             let mut failures = self.failures.lock().unwrap();
-            for id in dead {
+            for (id, message) in gave_up {
                 if let Some(handle) = tunnels.remove(&id) {
-                    let log = handle.log.lock().unwrap();
-                    let message = log
-                        .iter()
-                        .rev()
-                        .find(|line| !line.trim().is_empty())
-                        .cloned()
-                        .unwrap_or_else(|| "ssh exited unexpectedly".to_string());
                     let port_in_use =
                         message.to_ascii_lowercase().contains("address already in use");
                     failures.push(TunnelFailure {
-                        id: handle.info.id.clone(),
-                        ssh_host: handle.info.ssh_host.clone(),
-                        local_port: handle.info.local_port,
-                        remote_host: handle.info.remote_host.clone(),
-                        remote_port: handle.info.remote_port,
-                        message,
+                        id,
+                        ssh_host: handle.ssh_host,
+                        local_port: handle.local_port,
+                        remote_host: handle.remote_host,
+                        remote_port: handle.remote_port,
+                        message: format!("gave up after {MAX_RETRY_ATTEMPTS} attempts: {message}"),
                         port_in_use,
                     });
                 }
             }
         }
 
+        // 3. Build the view. Running entries get a fresh port probe;
+        //    Retrying entries report their countdown instead.
         tunnels
-            .values_mut()
-            .map(|handle| {
-                let latency_ms = probe_local_port(handle.info.local_port);
-                handle.info.status = if latency_ms.is_some() {
-                    TunnelStatus::Connected
-                } else {
-                    TunnelStatus::Connecting
-                };
-                handle.info.latency_ms = latency_ms;
-                handle.info.clone()
+            .iter_mut()
+            .map(|(id, handle)| match &handle.runtime {
+                Runtime::Running { pid, .. } => {
+                    let latency_ms = probe_local_port(handle.local_port);
+                    TunnelInfo {
+                        id: id.clone(),
+                        ssh_host: handle.ssh_host.clone(),
+                        local_port: handle.local_port,
+                        remote_host: handle.remote_host.clone(),
+                        remote_port: handle.remote_port,
+                        pid: Some(*pid),
+                        status: if latency_ms.is_some() {
+                            TunnelStatus::Connected
+                        } else {
+                            TunnelStatus::Connecting
+                        },
+                        latency_ms,
+                        retry_attempt: None,
+                        retry_in_secs: None,
+                    }
+                }
+                Runtime::Retrying { attempt, next_attempt, .. } => TunnelInfo {
+                    id: id.clone(),
+                    ssh_host: handle.ssh_host.clone(),
+                    local_port: handle.local_port,
+                    remote_host: handle.remote_host.clone(),
+                    remote_port: handle.remote_port,
+                    pid: None,
+                    status: TunnelStatus::Retrying,
+                    latency_ms: None,
+                    retry_attempt: Some(*attempt + 1),
+                    retry_in_secs: Some(next_attempt.saturating_duration_since(now).as_secs()),
+                },
             })
             .collect()
     }
@@ -237,7 +381,8 @@ impl TunnelState {
         std::mem::take(&mut *self.failures.lock().unwrap())
     }
 
-    /// Snapshot of the recent stderr lines for a running tunnel.
+    /// Snapshot of the recent stderr lines — spans every reconnect attempt
+    /// for this tunnel, not just the current one.
     pub fn log(&self, id: &str) -> Option<Vec<String>> {
         let tunnels = self.tunnels.lock().unwrap();
         let handle = tunnels.get(id)?;
@@ -247,9 +392,11 @@ impl TunnelState {
 
     pub fn stop_all(&self) {
         let mut tunnels = self.tunnels.lock().unwrap();
-        for (_, mut handle) in tunnels.drain() {
-            let _ = handle.child.kill();
-            let _ = handle.child.wait();
+        for (_, handle) in tunnels.drain() {
+            if let Runtime::Running { mut child, .. } = handle.runtime {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
         }
     }
 
@@ -258,7 +405,10 @@ impl TunnelState {
             .lock()
             .unwrap()
             .values()
-            .map(|h| h.info.pid)
+            .filter_map(|h| match &h.runtime {
+                Runtime::Running { pid, .. } => Some(*pid),
+                Runtime::Retrying { .. } => None,
+            })
             .collect()
     }
 }

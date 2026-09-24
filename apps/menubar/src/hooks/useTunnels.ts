@@ -3,7 +3,8 @@ import { save, open } from "@tauri-apps/plugin-dialog";
 import { api, type StartTunnelSpec } from "../lib/api";
 import type { Tunnel, TunnelFailure } from "../types";
 
-const POLL_INTERVAL_MS = 2000;
+// 1s so the latency chart and retry countdown feel real-time.
+const POLL_INTERVAL_MS = 1000;
 
 export function useTunnels() {
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);

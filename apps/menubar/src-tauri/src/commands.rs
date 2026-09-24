@@ -21,8 +21,10 @@ pub struct TunnelView {
     pub remote_port: u16,
     pub running: bool,
     pub status: Option<TunnelStatus>,
-    pub latency_ms: Option<u64>,
+    pub latency_ms: Option<f64>,
     pub pid: Option<u32>,
+    pub retry_attempt: Option<u32>,
+    pub retry_in_secs: Option<u64>,
 }
 
 #[tauri::command]
@@ -56,7 +58,9 @@ pub fn list_tunnels(state: State<TunnelState>, saved: State<SavedTunnelStore>) -
                 running: live.is_some(),
                 status: live.as_ref().map(|l| l.status.clone()),
                 latency_ms: live.as_ref().and_then(|l| l.latency_ms),
-                pid: live.as_ref().map(|l| l.pid),
+                pid: live.as_ref().and_then(|l| l.pid),
+                retry_attempt: live.as_ref().and_then(|l| l.retry_attempt),
+                retry_in_secs: live.as_ref().and_then(|l| l.retry_in_secs),
             }
         })
         .collect()
@@ -90,7 +94,9 @@ pub fn start_tunnel(
             running: true,
             status: Some(info.status),
             latency_ms: info.latency_ms,
-            pid: Some(info.pid),
+            pid: info.pid,
+            retry_attempt: info.retry_attempt,
+            retry_in_secs: info.retry_in_secs,
         }),
         Err(e) => {
             // Never actually launched — don't leave it persisted as running.
