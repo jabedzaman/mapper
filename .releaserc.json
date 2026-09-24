@@ -7,7 +7,7 @@
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "pnpm release:prepare"
+        "prepareCmd": "pnpm release:prepare ${nextRelease.version}"
       }
     ],
     [

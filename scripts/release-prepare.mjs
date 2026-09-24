@@ -1,9 +1,10 @@
 import { execSync } from 'node:child_process'
 import { existsSync, cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
-const version = process.env.SEMANTIC_RELEASE_NEXT_RELEASE_VERSION
+const version = process.argv[2] || process.env.SEMANTIC_RELEASE_NEXT_RELEASE_VERSION
 if (!version) {
-  throw new Error('SEMANTIC_RELEASE_NEXT_RELEASE_VERSION is not set')
+  throw new Error('No release version given (pass it as argv[2])')
 }
 
 const pkgJson = (path) => JSON.parse(readFileSync(path, 'utf8'))
@@ -36,29 +37,30 @@ if (cargoLockNext === cargoLock) {
 }
 writeFileSync('apps/menubar/src-tauri/Cargo.lock', cargoLockNext)
 
-execSync('pnpm build', { stdio: 'inherit' })
-
 if (process.env.RELEASE_PREPARE_SKIP_BUILD === '1') {
   console.log(`[release-prepare] version synced to ${version} (build skipped)`)
   process.exit(0)
 }
 
+execSync('pnpm build', { stdio: 'inherit' })
+
 const macos = 'apps/menubar/src-tauri/target/release/bundle/macos'
 const dmgDir = 'apps/menubar/src-tauri/target/release/bundle/dmg'
 const releaseDir = '.release'
+const releaseDirAbs = resolve(releaseDir)
 
 mkdirSync(releaseDir, { recursive: true })
 rmSync(releaseDir, { recursive: true, force: true })
 mkdirSync(releaseDir, { recursive: true })
 
 if (existsSync(macos)) {
-  execSync(`ditto -c -k --sequesterRsrc --keepParent Mapper.app ../.release/Mapper-${version}-macos.app.zip`, {
+  execSync(`ditto -c -k --sequesterRsrc --keepParent Mapper.app ${releaseDirAbs}/Mapper-${version}-macos.app.zip`, {
     cwd: macos,
     stdio: 'inherit',
   })
 }
 if (existsSync(dmgDir)) {
   for (const file of readdirSync(dmgDir)) {
-    cpSync(`${dmgDir}/${file}`, `.release/${file}`)
+    cpSync(`${dmgDir}/${file}`, `${releaseDir}/${file}`)
   }
 }
