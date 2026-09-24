@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { SshHost, TunnelFailure, TunnelInfo } from "../types";
+import type { OrphanedProcess, SshHost, TunnelFailure, TunnelInfo } from "../types";
 
 export interface StartTunnelSpec {
   sshHost: string;
@@ -16,5 +16,8 @@ export const api = {
   startTunnel: (spec: StartTunnelSpec) => invoke<TunnelInfo>("start_tunnel", spec),
   stopTunnel: (id: string) => invoke<void>("stop_tunnel", { id }),
   killProcessOnPort: (port: number) => invoke<void>("kill_process_on_port", { port }),
+  getTunnelLog: (id: string) => invoke<string[]>("get_tunnel_log", { id }),
+  listOrphanedSsh: () => invoke<OrphanedProcess[]>("list_orphaned_ssh"),
+  killOrphanedSsh: (pid: number) => invoke<void>("kill_orphaned_ssh", { pid }),
   quitApp: () => invoke<void>("quit_app"),
 };

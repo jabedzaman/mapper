@@ -1,7 +1,7 @@
 use tauri::{AppHandle, Manager, State};
 
 use crate::ssh_config::{self, SshHost};
-use crate::tunnel::{self, TunnelFailure, TunnelInfo, TunnelState};
+use crate::tunnel::{self, OrphanedProcess, TunnelFailure, TunnelInfo, TunnelState};
 
 #[tauri::command]
 pub fn list_ssh_hosts() -> Vec<SshHost> {
@@ -37,6 +37,21 @@ pub fn take_tunnel_failures(state: State<TunnelState>) -> Vec<TunnelFailure> {
 #[tauri::command]
 pub fn kill_process_on_port(port: u16) -> Result<(), String> {
     tunnel::kill_process_on_port(port)
+}
+
+#[tauri::command]
+pub fn get_tunnel_log(state: State<TunnelState>, id: String) -> Vec<String> {
+    state.log(&id).unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn list_orphaned_ssh(state: State<TunnelState>) -> Vec<OrphanedProcess> {
+    tunnel::list_orphaned_ssh(&state)
+}
+
+#[tauri::command]
+pub fn kill_orphaned_ssh(pid: u32) -> Result<(), String> {
+    tunnel::kill_orphaned_ssh(pid)
 }
 
 #[tauri::command]

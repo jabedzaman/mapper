@@ -35,11 +35,11 @@ starts only after you confirm.
 
 ## Reliability / diagnostics
 
-- [ ] Per-tunnel live status (connecting / connected / retrying / dead) instead of binary active-or-gone
-- [ ] Show ssh stderr/log tail for a running tunnel (not just on death)
-- [ ] Latency/health check ping on the forwarded port
+- [x] Per-tunnel live status (connecting / connected) — probes the local port each poll; no "retrying" state since that implies auto-reconnect, which isn't built
+- [x] Show ssh stderr/log tail for a running tunnel, not just on death — background reader keeps a 200-line ring buffer, viewable via the per-tunnel "Log" toggle
+- [x] Latency/health check ping on the forwarded port — same probe reports round-trip ms next to the host
 - [ ] Configurable ssh options per tunnel (ServerAliveInterval, compression, etc.) instead of fixed defaults
-- [ ] Detect and warn about stale/orphaned ssh processes from a previous crashed run
+- [x] Detect and warn about stale/orphaned ssh processes from a previous crashed run — scanned on launch, shown as a banner with a kill-all action
 
 ## Data & sync
 

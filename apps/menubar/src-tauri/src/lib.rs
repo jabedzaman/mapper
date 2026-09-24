@@ -18,6 +18,9 @@ pub fn run() {
             commands::stop_tunnel,
             commands::take_tunnel_failures,
             commands::kill_process_on_port,
+            commands::get_tunnel_log,
+            commands::list_orphaned_ssh,
+            commands::kill_orphaned_ssh,
             commands::quit_app,
         ])
         .setup(|app| {

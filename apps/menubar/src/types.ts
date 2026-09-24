@@ -5,6 +5,8 @@ export interface SshHost {
   port: number | null;
 }
 
+export type TunnelStatus = "connecting" | "connected";
+
 export interface TunnelInfo {
   id: string;
   sshHost: string;
@@ -12,6 +14,8 @@ export interface TunnelInfo {
   remoteHost: string;
   remotePort: number;
   pid: number;
+  status: TunnelStatus;
+  latencyMs: number | null;
 }
 
 export interface TunnelFailure {
@@ -22,4 +26,9 @@ export interface TunnelFailure {
   remotePort: number;
   message: string;
   portInUse: boolean;
+}
+
+export interface OrphanedProcess {
+  pid: number;
+  command: string;
 }
