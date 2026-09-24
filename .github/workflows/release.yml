@@ -23,26 +23,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Determine next version
-        id: version
-        run: |
-          LATEST=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n 1 || true)
-          if [ -z "$LATEST" ] || ! [[ "$LATEST" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            NEW="0.1.0"
-          else
-            NEW="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((10#${BASH_REMATCH[3]} + 1))"
-          fi
-          echo "version=$NEW" >> "$GITHUB_OUTPUT"
-          echo "tag=v$NEW" >> "$GITHUB_OUTPUT"
-          echo "Bumping to $NEW (latest tag was $LATEST)"
-
-      - name: Sync app version to release version
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          sed -i '' "s/0\.1\.0/$VERSION/g" apps/menubar/src-tauri/tauri.conf.json
-          sed -i '' "s/0\.1\.0/$VERSION/g" apps/menubar/src-tauri/Cargo.toml
-          sed -i '' "s/0\.1\.0/$VERSION/g" apps/menubar/package.json
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -60,34 +40,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build release bundle
-        run: pnpm build
-
-      - name: Zip the .app
-        run: |
-          cd apps/menubar/src-tauri/target/release/bundle/macos
-          ditto -c -k --sequesterRsrc --keepParent Mapper.app "Mapper-$VERSION-macos.app.zip"
-          mv "Mapper-$VERSION-macos.app.zip" "${{ github.workspace }}/"
+      - name: Semantic release
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-
-      - name: Create tag
-        run: |
-          git tag "$TAG"
-          git push origin "$TAG"
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Mapper v${{ steps.version.outputs.version }}
-          body: |
-            Automated release from ${{ github.sha }}.
-
-            Note: unsigned build. Code signing and notarization land with
-            the distribution milestone (see docs/features.md).
-          files: |
-            apps/menubar/src-tauri/target/release/bundle/dmg/*.dmg
-            Mapper-${{ steps.version.outputs.version }}-macos.app.zip
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm exec semantic-release

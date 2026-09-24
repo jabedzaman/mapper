@@ -1,10 +1,11 @@
 {
   "name": "mapper",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "scripts": {
     "dev": "pnpm --filter @mapper/menubar tauri dev",
     "build": "pnpm --filter @mapper/menubar tauri build",
+    "release:prepare": "node scripts/release-prepare.mjs",
     "prepare": "husky",
     "commitlint": "commitlint --config package.json"
   },
@@ -15,7 +16,10 @@
   "devDependencies": {
     "@commitlint/cli": "^20.5.3",
     "@commitlint/config-conventional": "^20.5.3",
-    "husky": "^9.1.7"
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/git": "^11.0.1",
+    "husky": "^9.1.7",
+    "semantic-release": "^25.0.9"
   },
   "commitlint": {
     "extends": [

@@ -1,0 +1,33 @@
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "pnpm release:prepare"
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": [
+          "package.json",
+          "apps/menubar/package.json",
+          "apps/menubar/src-tauri/Cargo.toml",
+          "apps/menubar/src-tauri/Cargo.lock",
+          "apps/menubar/src-tauri/tauri.conf.json"
+        ],
+        "message": "chore(mapper): release v${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [".release/*.zip", ".release/*.dmg"]
+      }
+    ]
+  ]
+}
