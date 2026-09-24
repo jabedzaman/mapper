@@ -1,0 +1,247 @@
+:root {
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font-size: 13px;
+
+  --bg: #f5f5f7;
+  --bg-elevated: #ffffff;
+  --border: rgba(0, 0, 0, 0.1);
+  --text: #1d1d1f;
+  --text-muted: rgba(29, 29, 31, 0.55);
+  --field-bg: rgba(0, 0, 0, 0.04);
+  --field-border: rgba(0, 0, 0, 0.12);
+  --accent: #0a84ff;
+  --danger: #ff3b30;
+  --danger-bg: rgba(255, 59, 48, 0.12);
+  --warning: #ff9500;
+  --warning-bg: rgba(255, 149, 0, 0.14);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1e1e1e;
+    --bg-elevated: #2a2a2c;
+    --border: rgba(255, 255, 255, 0.1);
+    --text: #f5f5f7;
+    --text-muted: rgba(245, 245, 247, 0.55);
+    --field-bg: rgba(255, 255, 255, 0.06);
+    --field-border: rgba(255, 255, 255, 0.14);
+    --accent: #0a84ff;
+    --danger: #ff453a;
+    --danger-bg: rgba(255, 69, 58, 0.16);
+    --warning: #ff9f0a;
+    --warning-bg: rgba(255, 159, 10, 0.16);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.subtitle {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.quit {
+  margin-left: auto;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+}
+
+.row label {
+  flex: 1;
+  min-width: 0;
+}
+
+input,
+select {
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--field-border);
+  background: var(--field-bg);
+  color: var(--text);
+}
+
+input::placeholder {
+  color: var(--text-muted);
+}
+
+input:focus,
+select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+button {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 7px;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.1s ease;
+}
+
+button:hover {
+  opacity: 0.85;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button[type="submit"] {
+  background: var(--accent);
+  color: white;
+  padding: 9px 12px;
+}
+
+.quit {
+  background: var(--field-bg);
+  color: var(--text);
+  border: 1px solid var(--field-border);
+  padding: 6px 10px;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 11px;
+  margin: 0;
+}
+
+.failure {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--danger-bg);
+}
+
+.failure .error {
+  overflow-wrap: break-word;
+}
+
+.retry {
+  align-self: flex-start;
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.tunnels {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tunnels h2 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.tunnels ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tunnels li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+
+.tunnel-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tunnel-info strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tunnel-info span {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.stop {
+  background: var(--danger-bg);
+  color: var(--danger);
+  padding: 6px 10px;
+  flex-shrink: 0;
+}

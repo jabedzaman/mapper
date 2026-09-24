@@ -1,0 +1,8 @@
+node_modules
+dist
+.claude
+apps/*/src-tauri/target
+apps/*/src-tauri/gen
+.DS_Store
+*.log
+*.tsbuildinfo
