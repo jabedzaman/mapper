@@ -11,11 +11,11 @@ export default function App() {
     useTunnels();
 
   return (
-    <div className="app">
+    <div className="flex h-screen flex-col bg-background text-foreground">
       <Header />
 
       <TunnelForm hosts={hosts} starting={starting} onSubmit={start} onValidationError={setError}>
-        {error && <p className="error">{error}</p>}
+        {error && <p className="text-xs text-destructive">{error}</p>}
         {failure && (
           <FailureBanner failure={failure} freeing={freeing} onFreeAndRetry={freeAndRetry} />
         )}

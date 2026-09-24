@@ -1,4 +1,14 @@
 import { useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { SshHost } from "../types";
 import type { StartTunnelSpec } from "../lib/api";
 
@@ -43,62 +53,79 @@ export function TunnelForm({ hosts, starting, onSubmit, onValidationError, child
   }
 
   return (
-    <form onSubmit={handleSubmit} className="form">
-      <label>
-        SSH config
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3 border-b border-border p-4">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="ssh-host" className="text-xs text-muted-foreground">
+          SSH config
+        </Label>
         {hosts.length > 0 ? (
-          <select value={sshHost} onChange={(e) => setSshHost(e.target.value)}>
-            {hosts.map((h) => (
-              <option key={h.alias} value={h.alias}>
-                {h.alias}
-                {h.hostname ? ` (${h.hostname})` : ""}
-              </option>
-            ))}
-          </select>
+          <Select value={sshHost} onValueChange={(v) => setSshHost(v as string)}>
+            <SelectTrigger id="ssh-host" className="w-full">
+              <SelectValue placeholder="Select a host" />
+            </SelectTrigger>
+            <SelectContent>
+              {hosts.map((h) => (
+                <SelectItem key={h.alias} value={h.alias}>
+                  {h.alias}
+                  {h.hostname ? ` (${h.hostname})` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         ) : (
-          <input
+          <Input
+            id="ssh-host"
             placeholder="user@host, or an alias from ~/.ssh/config"
             value={sshHost}
             onChange={(e) => setSshHost(e.target.value)}
           />
         )}
-      </label>
+      </div>
 
-      <div className="row">
-        <label>
-          Local port
-          <input
+      <div className="flex gap-2.5">
+        <div className="flex flex-1 flex-col gap-1.5">
+          <Label htmlFor="local-port" className="text-xs text-muted-foreground">
+            Local port
+          </Label>
+          <Input
+            id="local-port"
             inputMode="numeric"
             placeholder="8080"
             value={localPort}
             onChange={(e) => setLocalPort(e.target.value)}
           />
-        </label>
-        <label>
-          Remote port
-          <input
+        </div>
+        <div className="flex flex-1 flex-col gap-1.5">
+          <Label htmlFor="remote-port" className="text-xs text-muted-foreground">
+            Remote port
+          </Label>
+          <Input
+            id="remote-port"
             inputMode="numeric"
             placeholder="80"
             value={remotePort}
             onChange={(e) => setRemotePort(e.target.value)}
           />
-        </label>
+        </div>
       </div>
 
-      <label>
-        Remote host
-        <input
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="remote-host" className="text-xs text-muted-foreground">
+          Remote host
+        </Label>
+        <Input
+          id="remote-host"
           placeholder="localhost"
           value={remoteHost}
           onChange={(e) => setRemoteHost(e.target.value)}
         />
-      </label>
+      </div>
 
       {children}
 
-      <button type="submit" disabled={starting}>
+      <Button type="submit" disabled={starting} className="mt-1 w-full">
         {starting ? "Starting…" : "Start forwarding"}
-      </button>
+      </Button>
     </form>
   );
 }

@@ -1,3 +1,5 @@
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import type { TunnelFailure } from "../types";
 
 interface Props {
@@ -8,20 +10,22 @@ interface Props {
 
 export function FailureBanner({ failure, freeing, onFreeAndRetry }: Props) {
   return (
-    <div className="failure">
-      <p className="error">
+    <Alert variant="destructive" className="gap-2">
+      <AlertDescription className="break-words text-destructive">
         {failure.sshHost}:{failure.localPort} → {failure.message}
-      </p>
+      </AlertDescription>
       {failure.portInUse && (
-        <button
+        <Button
           type="button"
-          className="retry"
+          size="sm"
+          variant="outline"
           disabled={freeing}
+          className="w-fit border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
           onClick={() => onFreeAndRetry(failure)}
         >
           {freeing ? "Freeing port…" : `Kill process on port ${failure.localPort} & retry`}
-        </button>
+        </Button>
       )}
-    </div>
+    </Alert>
   );
 }
