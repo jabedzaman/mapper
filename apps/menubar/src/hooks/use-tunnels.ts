@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { api, type StartTunnelSpec } from "../lib/api";
+import { usePollInterval } from "./use-poll-interval";
 import type { Tunnel, TunnelFailure } from "../types";
 
-// 1s so the latency chart and retry countdown feel real-time.
-const POLL_INTERVAL_MS = 1000;
-
 export function useTunnels() {
+  const { intervalMs } = usePollInterval();
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [failure, setFailure] = useState<TunnelFailure | null>(null);
@@ -25,9 +24,9 @@ export function useTunnels() {
 
   useEffect(() => {
     refresh();
-    const interval = setInterval(refresh, POLL_INTERVAL_MS);
+    const interval = setInterval(refresh, intervalMs);
     return () => clearInterval(interval);
-  }, []);
+  }, [intervalMs]);
 
   async function start(spec: StartTunnelSpec) {
     setStarting(true);
@@ -52,6 +51,19 @@ export function useTunnels() {
       setFailure(null);
     } catch (err) {
       setError(String(err));
+    } finally {
+      await refresh();
+    }
+  }
+
+  async function update(id: string, spec: StartTunnelSpec) {
+    try {
+      await api.updateTunnel(id, spec);
+      setError(null);
+      return true;
+    } catch (err) {
+      setError(String(err));
+      return false;
     } finally {
       await refresh();
     }
@@ -124,6 +136,7 @@ export function useTunnels() {
     freeing,
     start,
     startSaved,
+    update,
     stop,
     remove,
     freeAndRetry,

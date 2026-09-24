@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "Mapper",
-        "width": 340,
-        "height": 460,
+        "width": 380,
+        "height": 560,
         "resizable": false,
         "visible": false,
         "decorations": true,

@@ -1,11 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
 use crate::saved_tunnels::SavedTunnelStore;
-use crate::ssh_config::{self, SshHost};
-use crate::tunnel::{self, OrphanedProcess, TunnelFailure, TunnelInfo, TunnelState, TunnelStatus};
+use crate::tunnel::{self, TunnelFailure, TunnelInfo, TunnelState, TunnelStatus};
 
 /// The merged view the frontend actually renders: a saved tunnel's
 /// persisted identity plus whatever live runtime state it currently has,
@@ -22,18 +21,19 @@ pub struct TunnelView {
     pub running: bool,
     pub status: Option<TunnelStatus>,
     pub latency_ms: Option<f64>,
+    /// Seconds the current connection has been up.
+    pub connected_secs: Option<u64>,
     pub pid: Option<u32>,
     pub retry_attempt: Option<u32>,
     pub retry_in_secs: Option<u64>,
 }
 
 #[tauri::command]
-pub fn list_ssh_hosts() -> Vec<SshHost> {
-    ssh_config::list_hosts()
-}
-
-#[tauri::command]
-pub fn list_tunnels(state: State<TunnelState>, saved: State<SavedTunnelStore>) -> Vec<TunnelView> {
+pub fn list_tunnels(
+    app: AppHandle,
+    state: State<TunnelState>,
+    saved: State<SavedTunnelStore>,
+) -> Vec<TunnelView> {
     let live = state.list();
     let live_ids: HashSet<String> = live.iter().map(|t| t.id.clone()).collect();
     // A saved tunnel marked running whose process isn't actually alive
@@ -43,7 +43,7 @@ pub fn list_tunnels(state: State<TunnelState>, saved: State<SavedTunnelStore>) -
     let mut live_by_id: HashMap<String, TunnelInfo> =
         live.into_iter().map(|t| (t.id.clone(), t)).collect();
 
-    saved
+    let views: Vec<TunnelView> = saved
         .list()
         .into_iter()
         .map(|t| {
@@ -58,12 +58,21 @@ pub fn list_tunnels(state: State<TunnelState>, saved: State<SavedTunnelStore>) -
                 running: live.is_some(),
                 status: live.as_ref().map(|l| l.status.clone()),
                 latency_ms: live.as_ref().and_then(|l| l.latency_ms),
+                connected_secs: live.as_ref().and_then(|l| l.connected_secs),
                 pid: live.as_ref().and_then(|l| l.pid),
                 retry_attempt: live.as_ref().and_then(|l| l.retry_attempt),
                 retry_in_secs: live.as_ref().and_then(|l| l.retry_in_secs),
             }
         })
-        .collect()
+        .collect();
+
+    // Piggybacks on the frontend's existing poll loop rather than running a
+    // separate timer just to keep the tray dropdown's contents current.
+    if let Some(tray) = state.tray() {
+        crate::tray::refresh_menu(&app, &tray, &views);
+    }
+
+    views
 }
 
 #[tauri::command]
@@ -94,6 +103,7 @@ pub fn start_tunnel(
             running: true,
             status: Some(info.status),
             latency_ms: info.latency_ms,
+            connected_secs: info.connected_secs,
             pid: info.pid,
             retry_attempt: info.retry_attempt,
             retry_in_secs: info.retry_in_secs,
@@ -126,6 +136,67 @@ pub fn start_saved_tunnel(
     )
 }
 
+/// Edits a saved tunnel's connection in place. If it was running, the old
+/// process is stopped and a new one launched with the updated params under
+/// the same id — otherwise just the saved record changes.
+#[tauri::command]
+pub fn update_tunnel(
+    state: State<TunnelState>,
+    saved: State<SavedTunnelStore>,
+    id: String,
+    ssh_host: String,
+    local_port: u16,
+    remote_host: String,
+    remote_port: u16,
+) -> Result<TunnelView, String> {
+    let was_running = saved.get(&id).map(|t| t.running).unwrap_or(false);
+    if was_running {
+        let _ = state.stop(&id);
+    }
+
+    let updated = saved.update(&id, &ssh_host, local_port, &remote_host, remote_port)?;
+
+    if !was_running {
+        return Ok(TunnelView {
+            id: updated.id,
+            name: updated.name,
+            ssh_host: updated.ssh_host,
+            local_port: updated.local_port,
+            remote_host: updated.remote_host,
+            remote_port: updated.remote_port,
+            running: false,
+            status: None,
+            latency_ms: None,
+            connected_secs: None,
+            pid: None,
+            retry_attempt: None,
+            retry_in_secs: None,
+        });
+    }
+
+    match state.start(updated.id.clone(), ssh_host, local_port, remote_host, remote_port) {
+        Ok(info) => Ok(TunnelView {
+            id: updated.id,
+            name: updated.name,
+            ssh_host: info.ssh_host,
+            local_port: info.local_port,
+            remote_host: info.remote_host,
+            remote_port: info.remote_port,
+            running: true,
+            status: Some(info.status),
+            latency_ms: info.latency_ms,
+            connected_secs: info.connected_secs,
+            pid: info.pid,
+            retry_attempt: info.retry_attempt,
+            retry_in_secs: info.retry_in_secs,
+        }),
+        Err(e) => {
+            let _ = saved.set_running(&updated.id, false);
+            Err(e)
+        }
+    }
+}
+
 #[tauri::command]
 pub fn stop_tunnel(
     state: State<TunnelState>,
@@ -156,33 +227,14 @@ pub fn kill_process_on_port(port: u16) -> Result<(), String> {
     tunnel::kill_process_on_port(port)
 }
 
+/// What's currently listening on `port`, so the UI can show it before the
+/// user confirms killing it.
+#[tauri::command]
+pub fn get_port_owners(port: u16) -> Vec<tunnel::OrphanedProcess> {
+    tunnel::get_port_owners(port)
+}
+
 #[tauri::command]
 pub fn get_tunnel_log(state: State<TunnelState>, id: String) -> Vec<String> {
     state.log(&id).unwrap_or_default()
-}
-
-#[tauri::command]
-pub fn list_orphaned_ssh(state: State<TunnelState>) -> Vec<OrphanedProcess> {
-    tunnel::list_orphaned_ssh(&state)
-}
-
-#[tauri::command]
-pub fn kill_orphaned_ssh(pid: u32) -> Result<(), String> {
-    tunnel::kill_orphaned_ssh(pid)
-}
-
-#[tauri::command]
-pub fn export_tunnels(saved: State<SavedTunnelStore>, path: String) -> Result<(), String> {
-    saved.export_to(&path)
-}
-
-#[tauri::command]
-pub fn import_tunnels(saved: State<SavedTunnelStore>, path: String) -> Result<usize, String> {
-    saved.import_from(&path)
-}
-
-#[tauri::command]
-pub fn quit_app(app: AppHandle) {
-    app.state::<TunnelState>().stop_all();
-    app.exit(0);
 }

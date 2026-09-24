@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useHostCheck } from "../hooks/use-host-check";
 import type { SshHost } from "../types";
 import type { StartTunnelSpec } from "../lib/api";
 
@@ -36,15 +37,30 @@ interface Props {
   starting: boolean;
   onSubmit: (spec: StartTunnelSpec) => Promise<boolean>;
   onValidationError: (message: string) => void;
+  /** Pre-fills the form for editing an existing tunnel instead of creating one. */
+  initial?: StartTunnelSpec;
+  /** Submit button label; defaults to "Start forwarding". */
+  submitLabel?: string;
+  submittingLabel?: string;
   /** Error / failure banners, rendered above the submit button. */
   children?: ReactNode;
 }
 
-export function TunnelForm({ hosts, starting, onSubmit, onValidationError, children }: Props) {
-  const [sshHost, setSshHost] = useState(() => readLastHost() || hosts[0]?.alias || "");
-  const [localPort, setLocalPort] = useState("");
-  const [remoteHost, setRemoteHost] = useState("localhost");
-  const [remotePort, setRemotePort] = useState("");
+export function TunnelForm({
+  hosts,
+  starting,
+  onSubmit,
+  onValidationError,
+  initial,
+  submitLabel = "Start forwarding",
+  submittingLabel = "Starting…",
+  children,
+}: Props) {
+  const [sshHost, setSshHost] = useState(() => initial?.sshHost || readLastHost() || hosts[0]?.alias || "");
+  const [localPort, setLocalPort] = useState(() => (initial ? String(initial.localPort) : ""));
+  const [remoteHost, setRemoteHost] = useState(initial?.remoteHost ?? "localhost");
+  const [remotePort, setRemotePort] = useState(() => (initial ? String(initial.remotePort) : ""));
+  const { check: hostCheck, checking: hostChecking } = useHostCheck(sshHost);
 
   // Populate the default selection once the ssh config list loads, if we
   // didn't already restore one from last time.
@@ -71,7 +87,7 @@ export function TunnelForm({ hosts, starting, onSubmit, onValidationError, child
       remoteHost: remoteHost || "localhost",
       remotePort: rp,
     });
-    if (ok) {
+    if (ok && !initial) {
       setLocalPort("");
       setRemotePort("");
     }
@@ -146,10 +162,29 @@ export function TunnelForm({ hosts, starting, onSubmit, onValidationError, child
         />
       </div>
 
+      {sshHost.trim() && (
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <span
+            className={`size-1.5 shrink-0 rounded-full ${
+              hostChecking && !hostCheck
+                ? "animate-pulse bg-muted-foreground/40"
+                : hostCheck?.reachable
+                  ? "bg-emerald-500"
+                  : "animate-pulse bg-red-500"
+            }`}
+          />
+          {hostChecking && !hostCheck
+            ? "Checking connection…"
+            : hostCheck?.reachable
+              ? `Reachable · ${hostCheck.latencyMs?.toFixed(2)}ms`
+              : `Unreachable${hostCheck?.error ? ` · ${hostCheck.error}` : ""}`}
+        </div>
+      )}
+
       {children}
 
       <Button type="submit" disabled={starting} className="mt-1 w-full">
-        {starting ? "Starting…" : "Start forwarding"}
+        {starting ? submittingLabel : submitLabel}
       </Button>
     </form>
   );

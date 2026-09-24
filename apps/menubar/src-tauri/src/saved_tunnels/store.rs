@@ -1,37 +1,11 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{App, AppHandle, Manager};
 
-/// Timestamp-based rather than an incrementing counter — a counter resets
-/// to 1 on every process start, which would collide with ids already on
-/// disk from a previous run.
-fn generate_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    nanos.to_string()
-}
+use tauri::{AppHandle, Manager};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct SavedTunnel {
-    pub id: String,
-    pub name: String,
-    pub ssh_host: String,
-    pub local_port: u16,
-    pub remote_host: String,
-    pub remote_port: u16,
-    /// The user's intent, not live process state: should this forward be
-    /// running? Restored on launch (auto-starts it), and cleared whenever
-    /// the process is stopped — deliberately or because it died.
-    #[serde(default)]
-    pub running: bool,
-}
+use super::types::{generate_id, SavedTunnel};
 
 pub struct SavedTunnelStore {
     path: PathBuf,
@@ -122,6 +96,32 @@ impl SavedTunnelStore {
         self.persist(&tunnels)
     }
 
+    /// Edits an existing saved tunnel's connection in place — same id, so
+    /// callers (and any live runtime handle) don't need to know it changed
+    /// identity. Caller is responsible for restarting the process if it
+    /// was running.
+    pub fn update(
+        &self,
+        id: &str,
+        ssh_host: &str,
+        local_port: u16,
+        remote_host: &str,
+        remote_port: u16,
+    ) -> Result<SavedTunnel, String> {
+        let mut tunnels = self.tunnels.lock().unwrap();
+        let Some(t) = tunnels.iter_mut().find(|t| t.id == id) else {
+            return Err(format!("no tunnel with id {id}"));
+        };
+        t.ssh_host = ssh_host.to_string();
+        t.local_port = local_port;
+        t.remote_host = remote_host.to_string();
+        t.remote_port = remote_port;
+        t.name = format!("{ssh_host} · {local_port} → {remote_host}:{remote_port}");
+        let result = t.clone();
+        self.persist(&tunnels)?;
+        Ok(result)
+    }
+
     pub fn remove(&self, id: &str) -> Result<(), String> {
         let mut tunnels = self.tunnels.lock().unwrap();
         let before = tunnels.len();
@@ -194,10 +194,4 @@ impl SavedTunnelStore {
         self.persist(&tunnels)?;
         Ok(added)
     }
-}
-
-pub fn setup(app: &App) -> Result<(), String> {
-    let store = SavedTunnelStore::load(&app.handle())?;
-    app.manage(store);
-    Ok(())
 }

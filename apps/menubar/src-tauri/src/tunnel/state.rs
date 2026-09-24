@@ -1,79 +1,13 @@
-use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::{BufRead, BufReader};
-use std::net::TcpStream;
-use std::process::{Child, Command, Stdio};
+use std::process::Child;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-/// Our spawned ssh commands always carry both of these flags together —
-/// used as a signature to identify our own processes among `ps` output,
-/// for orphan detection.
-const SIGNATURE_FLAGS: [&str; 2] = ["ExitOnForwardFailure=yes", "BatchMode=yes"];
+use tauri::tray::TrayIcon;
 
-const LOG_CAPACITY: usize = 200;
-const HEALTH_PROBE_TIMEOUT: Duration = Duration::from_millis(400);
-
-/// Backoff schedule for auto-reconnect, indexed by attempt number (capped
-/// at the last entry). After `MAX_RETRY_ATTEMPTS` consecutive failures we
-/// give up rather than retry a permanently dead host forever.
-const RETRY_DELAYS_SECS: [u64; 5] = [2, 4, 8, 16, 30];
-const MAX_RETRY_ATTEMPTS: u32 = 6;
-
-fn retry_delay(attempt: u32) -> Duration {
-    let idx = (attempt as usize).min(RETRY_DELAYS_SECS.len() - 1);
-    Duration::from_secs(RETRY_DELAYS_SECS[idx])
-}
-
-#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum TunnelStatus {
-    /// Process is running but the local port isn't accepting connections yet.
-    Connecting,
-    /// Process is running and the local port answered a probe connection.
-    Connected,
-    /// The process died and we're waiting to try spawning it again.
-    Retrying,
-}
-
-#[derive(Serialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct TunnelInfo {
-    pub id: String,
-    pub ssh_host: String,
-    pub local_port: u16,
-    pub remote_host: String,
-    pub remote_port: u16,
-    pub pid: Option<u32>,
-    pub status: TunnelStatus,
-    pub latency_ms: Option<f64>,
-    /// Set only while `status` is `Retrying`.
-    pub retry_attempt: Option<u32>,
-    pub retry_in_secs: Option<u64>,
-}
-
-#[derive(Serialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct TunnelFailure {
-    pub id: String,
-    pub ssh_host: String,
-    pub local_port: u16,
-    pub remote_host: String,
-    pub remote_port: u16,
-    pub message: String,
-    /// True when the failure looks like the local port was already bound by
-    /// something else, so the UI can offer to free it and retry.
-    pub port_in_use: bool,
-}
-
-#[derive(Serialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct OrphanedProcess {
-    pub pid: u32,
-    pub command: String,
-}
-
-type LogBuffer = Arc<Mutex<VecDeque<String>>>;
+use super::process::{last_log_line, spawn_ssh, LogBuffer, LOG_CAPACITY};
+use super::retry::{retry_delay, MAX_RETRY_ATTEMPTS};
+use super::types::{TunnelFailure, TunnelInfo, TunnelStatus};
 
 /// A tunnel is either actually forwarding right now, or between attempts
 /// after dying, waiting for its backoff timer.
@@ -91,98 +25,82 @@ struct TunnelHandle {
     /// Persists across respawns — reconnect attempts keep appending to the
     /// same history instead of each attempt starting a fresh empty log.
     log: LogBuffer,
+    /// When the current connection last became healthy (the local port
+    /// answered a probe). Reset on drop, giving per-connection uptime.
+    connected_at: Option<Instant>,
 }
 
 #[derive(Default)]
 pub struct TunnelState {
     tunnels: Mutex<HashMap<String, TunnelHandle>>,
     failures: Mutex<Vec<TunnelFailure>>,
-}
-
-/// Reads stderr line-by-line for as long as the process lives, keeping only
-/// the last `LOG_CAPACITY` lines. Runs on its own thread since pipe reads
-/// block, and doesn't need the tunnels map lock at all — it only touches
-/// its own buffer.
-fn spawn_log_reader(stderr: std::process::ChildStderr, log: LogBuffer) {
-    std::thread::spawn(move || {
-        let reader = BufReader::new(stderr);
-        for line in reader.lines() {
-            let Ok(line) = line else { break };
-            let mut buf = log.lock().unwrap();
-            if buf.len() >= LOG_CAPACITY {
-                buf.pop_front();
-            }
-            buf.push_back(line);
-        }
-    });
-}
-
-/// Attempts a short TCP connect to the forwarded local port. `Some(ms)` on
-/// success (the forward is actually accepting connections), `None` if it
-/// isn't up yet or the probe times out.
-///
-/// Sub-millisecond precision matters here: this is a loopback connect, so
-/// it routinely completes in well under 1ms — `.as_millis() as u64` would
-/// truncate every real reading down to 0.
-fn probe_local_port(local_port: u16) -> Option<f64> {
-    let addr = format!("127.0.0.1:{local_port}").parse().ok()?;
-    let start = Instant::now();
-    TcpStream::connect_timeout(&addr, HEALTH_PROBE_TIMEOUT)
-        .ok()
-        .map(|_| start.elapsed().as_secs_f64() * 1000.0)
-}
-
-/// The actual `ssh -L ...` spawn, shared between a fresh start and a
-/// reconnect attempt.
-fn spawn_ssh(
-    ssh_host: &str,
-    local_port: u16,
-    remote_host: &str,
-    remote_port: u16,
-    log: &LogBuffer,
-) -> Result<(Child, u32), String> {
-    let forward_spec = format!("{local_port}:{remote_host}:{remote_port}");
-
-    let mut child = Command::new("ssh")
-        .args([
-            "-N", // no remote command, just forward
-            "-o",
-            SIGNATURE_FLAGS[0],
-            "-o",
-            SIGNATURE_FLAGS[1], // never block on an interactive password prompt
-            "-o",
-            "ServerAliveInterval=30",
-            "-o",
-            "ServerAliveCountMax=3",
-            "-L",
-            &forward_spec,
-            ssh_host,
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("failed to launch ssh: {e}"))?;
-
-    if let Some(stderr) = child.stderr.take() {
-        spawn_log_reader(stderr, log.clone());
-    }
-
-    let pid = child.id();
-    Ok((child, pid))
-}
-
-fn last_log_line(log: &LogBuffer) -> String {
-    log.lock()
-        .unwrap()
-        .iter()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .cloned()
-        .unwrap_or_else(|| "ssh exited unexpectedly".to_string())
+    /// Handle to the menu-bar tray icon, set during app setup. Used to show
+    /// the count of tunnels with a live forward process as tray title text.
+    tray: Mutex<Option<TrayIcon>>,
+    /// Whether the tray badge is enabled (user toggle). Defaults to on.
+    show_badge: Mutex<bool>,
 }
 
 impl TunnelState {
+    /// Hands the state the live tray icon so it can badge the menu-bar
+    /// item with the active tunnel count. Called once during app setup.
+    pub fn set_tray(&self, tray: TrayIcon, show_badge: bool) {
+        self.tray.lock().unwrap().replace(tray);
+        *self.show_badge.lock().unwrap() = show_badge;
+        self.update_badge();
+    }
+
+    /// Flips whether the tray badge is shown. Persisted separately in the
+    /// settings store; this only mirrors it onto runtime behavior.
+    pub fn set_badge_visible(&self, visible: bool) {
+        *self.show_badge.lock().unwrap() = visible;
+        self.update_badge();
+    }
+
+    /// Handle to the tray icon, for rebuilding its dropdown menu. `None`
+    /// only before `set_tray` runs during app setup.
+    pub fn tray(&self) -> Option<TrayIcon> {
+        self.tray.lock().unwrap().clone()
+    }
+
+    /// Number of tunnels with a live ssh process right now. Retrying
+    /// tunnels don't count — their forward is actually down.
+    fn running_count(&self) -> usize {
+        self.tunnels
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|h| matches!(h.runtime, Runtime::Running { .. }))
+            .count()
+    }
+
+    /// Pushes the active tunnel count into the tray title; clears it when
+    /// nothing is running so the plain icon stays uncluttered. When the
+    /// badge is disabled, keeps the title cleared entirely. Best-effort:
+    /// a failure here never affects tunnel operations.
+    ///
+    /// Note: `set_title(None)` is a no-op on macOS (tray-icon only applies
+    /// `Some`), so clearing must use an empty string.
+    const EMPTY_TITLE: Option<&str> = Some("");
+
+    fn update_badge(&self) {
+        if !*self.show_badge.lock().unwrap() {
+            if let Some(tray) = self.tray.lock().unwrap().as_ref() {
+                let _ = tray.set_title(Self::EMPTY_TITLE);
+            }
+            return;
+        }
+
+        let n = self.running_count();
+        if let Some(tray) = self.tray.lock().unwrap().as_ref() {
+            if n == 0 {
+                let _ = tray.set_title(Self::EMPTY_TITLE);
+            } else {
+                let _ = tray.set_title(Some(n.to_string()));
+            }
+        }
+    }
+
     /// `id` is supplied by the caller (the persisted saved-tunnel id) so
     /// the runtime handle and the on-disk record always share one identity.
     pub fn start(
@@ -209,8 +127,10 @@ impl TunnelState {
                 remote_port,
                 runtime: Runtime::Running { child, pid },
                 log,
+                connected_at: None,
             },
         );
+        self.update_badge();
 
         Ok(TunnelInfo {
             id,
@@ -221,6 +141,7 @@ impl TunnelState {
             pid: Some(pid),
             status: TunnelStatus::Connecting,
             latency_ms: None,
+            connected_secs: None,
             retry_attempt: None,
             retry_in_secs: None,
         })
@@ -237,6 +158,7 @@ impl TunnelState {
             child.kill().map_err(|e| format!("failed to stop tunnel: {e}"))?;
             let _ = child.wait();
         }
+        self.update_badge();
         Ok(())
     }
 
@@ -263,6 +185,7 @@ impl TunnelState {
         for id in &newly_dead {
             if let Some(handle) = tunnels.get_mut(id) {
                 let last_error = last_log_line(&handle.log);
+                handle.connected_at = None;
                 handle.runtime = Runtime::Retrying {
                     attempt: 0,
                     next_attempt: now + retry_delay(0),
@@ -339,11 +262,20 @@ impl TunnelState {
 
         // 3. Build the view. Running entries get a fresh port probe;
         //    Retrying entries report their countdown instead.
-        tunnels
+        let view: Vec<TunnelInfo> = tunnels
             .iter_mut()
             .map(|(id, handle)| match &handle.runtime {
                 Runtime::Running { pid, .. } => {
-                    let latency_ms = probe_local_port(handle.local_port);
+                    let latency_ms = super::process::probe_local_port(handle.local_port);
+                    let connected = latency_ms.is_some();
+                    if connected && handle.connected_at.is_none() {
+                        handle.connected_at = Some(now);
+                    } else if !connected {
+                        handle.connected_at = None;
+                    }
+                    let connected_secs = connected
+                        .then(|| handle.connected_at.map(|at| now.duration_since(at).as_secs()))
+                        .flatten();
                     TunnelInfo {
                         id: id.clone(),
                         ssh_host: handle.ssh_host.clone(),
@@ -351,12 +283,13 @@ impl TunnelState {
                         remote_host: handle.remote_host.clone(),
                         remote_port: handle.remote_port,
                         pid: Some(*pid),
-                        status: if latency_ms.is_some() {
+                        status: if connected {
                             TunnelStatus::Connected
                         } else {
                             TunnelStatus::Connecting
                         },
                         latency_ms,
+                        connected_secs,
                         retry_attempt: None,
                         retry_in_secs: None,
                     }
@@ -370,11 +303,15 @@ impl TunnelState {
                     pid: None,
                     status: TunnelStatus::Retrying,
                     latency_ms: None,
+                    connected_secs: None,
                     retry_attempt: Some(*attempt + 1),
                     retry_in_secs: Some(next_attempt.saturating_duration_since(now).as_secs()),
                 },
             })
-            .collect()
+            .collect();
+        drop(tunnels);
+        self.update_badge();
+        view
     }
 
     pub fn take_failures(&self) -> Vec<TunnelFailure> {
@@ -398,9 +335,13 @@ impl TunnelState {
                 let _ = child.wait();
             }
         }
+        drop(tunnels);
+        self.update_badge();
     }
 
-    fn tracked_pids(&self) -> HashSet<u32> {
+    /// Exposed to `super::orphan` so it can tell apart our own tracked ssh
+    /// processes from genuine leftovers of a previous crashed run.
+    pub(super) fn tracked_pids(&self) -> HashSet<u32> {
         self.tunnels
             .lock()
             .unwrap()
@@ -411,76 +352,4 @@ impl TunnelState {
             })
             .collect()
     }
-}
-
-/// Finds whatever is listening on `port` locally (via `lsof`) and kills it.
-/// Used to recover from "Address already in use" when starting a forward.
-pub fn kill_process_on_port(port: u16) -> Result<(), String> {
-    let output = Command::new("lsof")
-        .args(["-ti", &format!("tcp:{port}"), "-sTCP:LISTEN"])
-        .output()
-        .map_err(|e| format!("failed to run lsof: {e}"))?;
-
-    let pids: Vec<&str> = std::str::from_utf8(&output.stdout)
-        .unwrap_or("")
-        .split_whitespace()
-        .collect();
-
-    if pids.is_empty() {
-        return Err(format!("no process found listening on port {port}"));
-    }
-
-    for pid in pids {
-        let status = Command::new("kill")
-            .args(["-9", pid])
-            .status()
-            .map_err(|e| format!("failed to kill pid {pid}: {e}"))?;
-        if !status.success() {
-            return Err(format!("kill -9 {pid} failed"));
-        }
-    }
-
-    Ok(())
-}
-
-/// Finds `ssh` processes carrying our forward signature that this
-/// `TunnelState` isn't currently tracking — i.e. leftovers from a previous
-/// crashed run of the app.
-pub fn list_orphaned_ssh(state: &TunnelState) -> Vec<OrphanedProcess> {
-    let tracked = state.tracked_pids();
-
-    let output = match Command::new("ps").args(["-eo", "pid=,command="]).output() {
-        Ok(o) => o,
-        Err(_) => return Vec::new(),
-    };
-    let text = String::from_utf8_lossy(&output.stdout);
-
-    text.lines()
-        .filter_map(|line| {
-            let line = line.trim_start();
-            let (pid_str, command) = line.split_once(char::is_whitespace)?;
-            let pid: u32 = pid_str.parse().ok()?;
-            if tracked.contains(&pid) {
-                return None;
-            }
-            let command = command.trim();
-            let looks_like_ours = command.starts_with("ssh ")
-                && SIGNATURE_FLAGS.iter().all(|flag| command.contains(flag));
-            looks_like_ours.then(|| OrphanedProcess {
-                pid,
-                command: command.to_string(),
-            })
-        })
-        .collect()
-}
-
-pub fn kill_orphaned_ssh(pid: u32) -> Result<(), String> {
-    let status = Command::new("kill")
-        .args(["-9", &pid.to_string()])
-        .status()
-        .map_err(|e| format!("failed to kill pid {pid}: {e}"))?;
-    if !status.success() {
-        return Err(format!("kill -9 {pid} failed"));
-    }
-    Ok(())
 }

@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import App from "./app";
 import "./index.css";
 
 // shadcn's dark tokens are gated behind a `.dark` class rather than

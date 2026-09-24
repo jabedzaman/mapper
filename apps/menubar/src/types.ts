@@ -22,6 +22,8 @@ export interface Tunnel {
   running: boolean;
   status: TunnelStatus | null;
   latencyMs: number | null;
+  /** Seconds the current connection has been up; null while not connected. */
+  connectedSecs: number | null;
   pid: number | null;
   /** Set only while `status` is "retrying". */
   retryAttempt: number | null;
@@ -41,4 +43,10 @@ export interface TunnelFailure {
 export interface OrphanedProcess {
   pid: number;
   command: string;
+}
+
+export interface HostCheck {
+  reachable: boolean;
+  latencyMs: number | null;
+  error: string | null;
 }

@@ -1,5 +1,9 @@
 use serde::Serialize;
 use std::fs;
+use std::net::{TcpStream, ToSocketAddrs};
+use std::time::{Duration, Instant};
+
+const CHECK_TIMEOUT: Duration = Duration::from_millis(1500);
 
 #[derive(Serialize, Clone, Debug)]
 pub struct SshHost {
@@ -7,6 +11,14 @@ pub struct SshHost {
     pub hostname: Option<String>,
     pub user: Option<String>,
     pub port: Option<u16>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct HostCheck {
+    pub reachable: bool,
+    pub latency_ms: Option<f64>,
+    pub error: Option<String>,
 }
 
 /// Parses `Host` blocks out of `~/.ssh/config`. Wildcard/pattern aliases
@@ -66,4 +78,47 @@ pub fn list_hosts() -> Vec<SshHost> {
     }
 
     hosts
+}
+
+/// Resolves an alias/host string to the (hostname, port) to actually dial:
+/// prefers what `~/.ssh/config` says for that alias, then falls back to
+/// treating the input as a literal `user@host` or bare host with the
+/// default ssh port — covers the manual-entry mode too.
+fn resolve_target(alias: &str) -> (String, u16) {
+    if let Some(host) = list_hosts().into_iter().find(|h| h.alias == alias) {
+        return (host.hostname.unwrap_or_else(|| alias.to_string()), host.port.unwrap_or(22));
+    }
+    let bare = alias.rsplit('@').next().unwrap_or(alias);
+    (bare.to_string(), 22)
+}
+
+/// A lightweight reachability check: TCP-connects to the host's ssh port
+/// and reports whether it answered and how long that took. This checks
+/// network reachability, not that ssh auth would actually succeed.
+pub fn check_host(alias: &str) -> HostCheck {
+    let (host, port) = resolve_target(alias);
+    let addr = match (host.as_str(), port).to_socket_addrs().ok().and_then(|mut a| a.next()) {
+        Some(addr) => addr,
+        None => {
+            return HostCheck {
+                reachable: false,
+                latency_ms: None,
+                error: Some(format!("could not resolve {host}")),
+            }
+        }
+    };
+
+    let start = Instant::now();
+    match TcpStream::connect_timeout(&addr, CHECK_TIMEOUT) {
+        Ok(_) => HostCheck {
+            reachable: true,
+            latency_ms: Some(start.elapsed().as_secs_f64() * 1000.0),
+            error: None,
+        },
+        Err(e) => HostCheck {
+            reachable: false,
+            latency_ms: None,
+            error: Some(e.to_string()),
+        },
+    }
 }
