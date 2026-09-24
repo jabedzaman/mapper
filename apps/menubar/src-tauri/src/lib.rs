@@ -1,4 +1,5 @@
 mod commands;
+mod shutdown;
 mod ssh_config;
 mod tray;
 mod tunnel;
@@ -25,6 +26,8 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             tray::setup(app)?;
+            shutdown::setup_signal_handler(app)?;
+            shutdown::install_panic_cleanup(app);
 
             Ok(())
         })
