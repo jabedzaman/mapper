@@ -6,12 +6,12 @@ starts only after you confirm.
 
 ## Core forwarding
 
-- [ ] Persist active tunnels across app restart (re-launch saved forwards on start)
+- [x] Persist active tunnels across app restart (re-launch saved forwards on start) — every tunnel has a persisted `running` intent; app launch restarts anything marked running, quit/kill always kills the OS processes but leaves that intent untouched so it comes back next launch. A tunnel that dies unexpectedly (crash, auth failure) flips to stopped instead of crash-looping
 - [ ] Remote forwarding (`-R`) in addition to local (`-L`)
 - [ ] Dynamic/SOCKS forwarding (`-D`)
 - [ ] Multiple simultaneous forwards through one ssh connection (multiplex, `-J`/`ControlMaster`)
 - [ ] Auto-reconnect a tunnel if it drops (retry with backoff)
-- [ ] Named/saved forward presets ("staging db", "prod redis") instead of re-entering host/ports each time
+- [x] Named/saved forwards — every started tunnel is saved automatically (deduped by connection), no separate "preset" concept or manual save step; stopping a tunnel keeps it in the list so it's a one-click Start away, Delete removes it for good
 - [ ] Edit an existing forward without stopping/recreating it
 - [ ] Duplicate a running forward with one click
 
@@ -43,9 +43,9 @@ starts only after you confirm.
 
 ## Data & sync
 
-- [ ] Persist saved tunnel presets to disk (JSON) across app updates
-- [ ] Export/import tunnel presets (share a set of forwards with teammates)
-- [ ] iCloud/file sync of presets across machines
+- [x] Persist saved tunnels to disk (JSON) across app updates — written to the app's config dir as `tunnels.json`, reloaded on launch
+- [x] Export/import saved tunnels (share a set of forwards with teammates) — native save/open dialog, plain JSON file; import merges by connection (host + all three ports), skipping duplicates, and always comes in stopped
+- [ ] iCloud/file sync across machines — explicitly held off per your instruction, not attempted
 
 ## Security
 

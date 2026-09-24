@@ -12,6 +12,25 @@ import {
 import type { SshHost } from "../types";
 import type { StartTunnelSpec } from "../lib/api";
 
+const LAST_HOST_KEY = "mapper.lastSshHost";
+
+function readLastHost(): string {
+  try {
+    return localStorage.getItem(LAST_HOST_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberHost(alias: string) {
+  try {
+    localStorage.setItem(LAST_HOST_KEY, alias);
+  } catch {
+    // best-effort only — a private window or blocked storage just means
+    // the dropdown won't remember next launch, nothing else breaks.
+  }
+}
+
 interface Props {
   hosts: SshHost[];
   starting: boolean;
@@ -22,14 +41,20 @@ interface Props {
 }
 
 export function TunnelForm({ hosts, starting, onSubmit, onValidationError, children }: Props) {
-  const [sshHost, setSshHost] = useState(hosts[0]?.alias ?? "");
+  const [sshHost, setSshHost] = useState(() => readLastHost() || hosts[0]?.alias || "");
   const [localPort, setLocalPort] = useState("");
   const [remoteHost, setRemoteHost] = useState("localhost");
   const [remotePort, setRemotePort] = useState("");
 
-  // Populate the default selection once the ssh config list loads.
+  // Populate the default selection once the ssh config list loads, if we
+  // didn't already restore one from last time.
   if (!sshHost && hosts.length > 0) {
     setSshHost(hosts[0].alias);
+  }
+
+  function selectHost(alias: string) {
+    setSshHost(alias);
+    rememberHost(alias);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -59,7 +84,7 @@ export function TunnelForm({ hosts, starting, onSubmit, onValidationError, child
           SSH config
         </Label>
         {hosts.length > 0 ? (
-          <Select value={sshHost} onValueChange={(v) => setSshHost(v as string)}>
+          <Select value={sshHost} onValueChange={(v) => selectHost(v as string)}>
             <SelectTrigger id="ssh-host" className="w-full">
               <SelectValue placeholder="Select a host" />
             </SelectTrigger>
@@ -77,7 +102,7 @@ export function TunnelForm({ hosts, starting, onSubmit, onValidationError, child
             id="ssh-host"
             placeholder="user@host, or an alias from ~/.ssh/config"
             value={sshHost}
-            onChange={(e) => setSshHost(e.target.value)}
+            onChange={(e) => selectHost(e.target.value)}
           />
         )}
       </div>

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
+import { save, open } from "@tauri-apps/plugin-dialog";
 import { api, type StartTunnelSpec } from "../lib/api";
-import type { TunnelFailure, TunnelInfo } from "../types";
+import type { Tunnel, TunnelFailure } from "../types";
 
 const POLL_INTERVAL_MS = 2000;
 
 export function useTunnels() {
-  const [tunnels, setTunnels] = useState<TunnelInfo[]>([]);
+  const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [failure, setFailure] = useState<TunnelFailure | null>(null);
   const [starting, setStarting] = useState(false);
@@ -43,8 +44,25 @@ export function useTunnels() {
     }
   }
 
+  async function startSaved(id: string) {
+    try {
+      await api.startSavedTunnel(id);
+      setError(null);
+      setFailure(null);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      await refresh();
+    }
+  }
+
   async function stop(id: string) {
     await api.stopTunnel(id);
+    await refresh();
+  }
+
+  async function remove(id: string) {
+    await api.deleteTunnel(id);
     await refresh();
   }
 
@@ -65,6 +83,37 @@ export function useTunnels() {
     }
   }
 
+  async function exportToFile() {
+    setError(null);
+    const path = await save({
+      title: "Export tunnels",
+      defaultPath: "mapper-tunnels.json",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!path) return;
+    try {
+      await api.exportTunnels(path);
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function importFromFile() {
+    setError(null);
+    const path = await open({
+      title: "Import tunnels",
+      multiple: false,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!path) return;
+    try {
+      await api.importTunnels(path as string);
+      await refresh();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
   return {
     tunnels,
     error,
@@ -73,7 +122,11 @@ export function useTunnels() {
     starting,
     freeing,
     start,
+    startSaved,
     stop,
+    remove,
     freeAndRetry,
+    exportToFile,
+    importFromFile,
   };
 }

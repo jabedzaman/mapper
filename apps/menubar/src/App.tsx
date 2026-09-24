@@ -9,8 +9,21 @@ import { useOrphanedProcesses } from "./hooks/useOrphanedProcesses";
 
 export default function App() {
   const hosts = useSshHosts();
-  const { tunnels, error, setError, failure, starting, freeing, start, stop, freeAndRetry } =
-    useTunnels();
+  const {
+    tunnels,
+    error,
+    setError,
+    failure,
+    starting,
+    freeing,
+    start,
+    startSaved,
+    stop,
+    remove,
+    freeAndRetry,
+    exportToFile,
+    importFromFile,
+  } = useTunnels();
   const { orphans, killing, killAll } = useOrphanedProcesses();
 
   return (
@@ -26,7 +39,14 @@ export default function App() {
         )}
       </TunnelForm>
 
-      <TunnelList tunnels={tunnels} onStop={stop} />
+      <TunnelList
+        tunnels={tunnels}
+        onStart={startSaved}
+        onStop={stop}
+        onDelete={remove}
+        onExport={exportToFile}
+        onImport={importFromFile}
+      />
     </div>
   );
 }

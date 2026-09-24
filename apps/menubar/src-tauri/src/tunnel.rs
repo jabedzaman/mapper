@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -72,8 +71,6 @@ pub struct TunnelState {
     failures: Mutex<Vec<TunnelFailure>>,
 }
 
-static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-
 /// Reads stderr line-by-line for as long as the process lives, keeping only
 /// the last `LOG_CAPACITY` lines. Runs on its own thread since pipe reads
 /// block, and doesn't need the tunnels map lock at all — it only touches
@@ -104,13 +101,20 @@ fn probe_local_port(local_port: u16) -> Option<u64> {
 }
 
 impl TunnelState {
+    /// `id` is supplied by the caller (the persisted saved-tunnel id) so
+    /// the runtime handle and the on-disk record always share one identity.
     pub fn start(
         &self,
+        id: String,
         ssh_host: String,
         local_port: u16,
         remote_host: String,
         remote_port: u16,
     ) -> Result<TunnelInfo, String> {
+        if self.tunnels.lock().unwrap().contains_key(&id) {
+            return Err(format!("tunnel {id} is already running"));
+        }
+
         let forward_spec = format!("{local_port}:{remote_host}:{remote_port}");
 
         let mut child = Command::new("ssh")
@@ -139,7 +143,6 @@ impl TunnelState {
             spawn_log_reader(stderr, log.clone());
         }
 
-        let id = NEXT_ID.fetch_add(1, Ordering::SeqCst).to_string();
         let info = TunnelInfo {
             id: id.clone(),
             ssh_host,
