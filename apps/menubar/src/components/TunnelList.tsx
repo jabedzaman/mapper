@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Play, Square, ScrollText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useTunnelLog } from "../hooks/useTunnelLog";
@@ -97,20 +98,25 @@ function TunnelRow({
             {t.running && t.latencyMs != null && ` · ${t.latencyMs}ms`}
           </span>
         </div>
-        <div className="flex shrink-0 gap-1.5">
+        <div className="flex shrink-0 items-center gap-1">
           {t.running && (
-            <Button size="sm" variant="ghost" onClick={onToggleLog}>
-              {expanded ? "Hide log" : "Log"}
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              title={expanded ? "Hide log" : "Show log"}
+              onClick={onToggleLog}
+            >
+              <ScrollText className="size-4" />
             </Button>
           )}
           {t.running ? (
-            <Button size="sm" variant="destructive" onClick={onStop}>
-              Stop
+            <Button size="icon-sm" variant="destructive" title="Stop" onClick={onStop}>
+              <Square className="size-4" />
             </Button>
           ) : (
             <>
-              <Button size="sm" variant="outline" onClick={onStart}>
-                Start
+              <Button size="icon-sm" variant="outline" title="Start" onClick={onStart}>
+                <Play className="size-4" />
               </Button>
               <Button size="sm" variant="ghost" onClick={onDelete}>
                 Delete
