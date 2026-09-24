@@ -1,9 +1,15 @@
-import { useState } from "react";
-import { Play, Square, ScrollText } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion";
+import { Play, Square, ChevronDown, ChevronUp, Trash2, Activity, ScrollText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Accordion, AccordionItem, AccordionContent } from "@/components/ui/accordion";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useTunnelLog } from "../hooks/useTunnelLog";
+import { LatencyChart } from "./LatencyChart";
 import type { Tunnel } from "../types";
+
+const LATENCY_HISTORY_LIMIT = 60; // ~60s of samples at the 1s poll interval
 
 interface Props {
   tunnels: Tunnel[];
@@ -15,7 +21,7 @@ interface Props {
 }
 
 export function TunnelList({ tunnels, onStart, onStop, onDelete, onExport, onImport }: Props) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [openIds, setOpenIds] = useState<string[]>([]);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-4">
@@ -40,75 +46,87 @@ export function TunnelList({ tunnels, onStart, onStop, onDelete, onExport, onImp
         </p>
       )}
 
-      <ul className="flex flex-col gap-2">
+      {/* Single-open: no `multiple` prop, so opening a row closes whichever was open. */}
+      <Accordion value={openIds} onValueChange={(v) => setOpenIds(v as string[])} className="gap-2">
         {tunnels.map((t) => (
           <TunnelRow
             key={t.id}
             tunnel={t}
-            expanded={expandedId === t.id}
-            onToggleLog={() => setExpandedId(expandedId === t.id ? null : t.id)}
+            open={openIds.includes(t.id)}
             onStart={() => onStart(t.id)}
             onStop={() => onStop(t.id)}
             onDelete={() => onDelete(t.id)}
           />
         ))}
-      </ul>
+      </Accordion>
     </section>
   );
 }
 
+function statusDotClass(t: Tunnel): string {
+  if (!t.running) return "bg-muted-foreground/40";
+  if (t.status === "connected") return "bg-emerald-500";
+  if (t.status === "retrying") return "animate-pulse bg-red-500";
+  return "animate-pulse bg-amber-500";
+}
+
+function statusTitle(t: Tunnel): string {
+  if (!t.running) return "Stopped";
+  if (t.status === "connected") return "Connected";
+  if (t.status === "retrying") return "Retrying…";
+  return "Connecting…";
+}
+
 function TunnelRow({
   tunnel: t,
-  expanded,
-  onToggleLog,
+  open,
   onStart,
   onStop,
   onDelete,
 }: {
   tunnel: Tunnel;
-  expanded: boolean;
-  onToggleLog: () => void;
+  open: boolean;
   onStart: () => void;
   onStop: () => void;
   onDelete: () => void;
 }) {
-  const log = useTunnelLog(t.id, expanded && t.running);
+  const log = useTunnelLog(t.id, open && t.running);
+  const [latencyHistory, setLatencyHistory] = useState<number[]>([]);
+
+  useEffect(() => {
+    if (!t.running) {
+      setLatencyHistory([]);
+      return;
+    }
+    if (t.status === "connected" && t.latencyMs != null) {
+      const ms = t.latencyMs;
+      setLatencyHistory((prev) => [...prev.slice(-(LATENCY_HISTORY_LIMIT - 1)), ms]);
+    }
+  }, [t.running, t.status, t.latencyMs]);
 
   return (
-    <li className="flex flex-col gap-2 rounded-lg border border-border bg-card px-2.5 py-2">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`size-1.5 shrink-0 rounded-full ${
-                !t.running
-                  ? "bg-muted-foreground/40"
-                  : t.status === "connected"
-                    ? "bg-emerald-500"
-                    : "animate-pulse bg-amber-500"
-              }`}
-              title={!t.running ? "Stopped" : t.status === "connected" ? "Connected" : "Connecting…"}
-            />
-            <strong className="truncate text-xs font-semibold">
-              {t.localPort} → {t.remoteHost}:{t.remotePort}
-            </strong>
+    <AccordionItem value={t.id} className="rounded-lg border border-border bg-card px-2.5 not-last:border-b-0">
+      <AccordionPrimitive.Header className="flex items-center gap-1">
+        <AccordionPrimitive.Trigger className="group/trigger flex flex-1 items-center justify-between gap-2 py-2 text-left outline-none">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <div className="flex items-center gap-1.5">
+              <span className={`size-1.5 shrink-0 rounded-full ${statusDotClass(t)}`} title={statusTitle(t)} />
+              <strong className="truncate text-xs font-semibold">
+                {t.localPort} → {t.remoteHost}:{t.remotePort}
+              </strong>
+            </div>
+            <span className="text-[10px] text-muted-foreground">
+              via {t.sshHost}
+              {t.status === "retrying"
+                ? ` · retrying in ${t.retryInSecs}s (attempt ${t.retryAttempt}/6)`
+                : t.running && t.latencyMs != null && ` · ${t.latencyMs.toFixed(2)}ms`}
+            </span>
           </div>
-          <span className="text-[10px] text-muted-foreground">
-            via {t.sshHost}
-            {t.running && t.latencyMs != null && ` · ${t.latencyMs}ms`}
-          </span>
-        </div>
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground group-aria-expanded/trigger:hidden" />
+          <ChevronUp className="hidden size-4 shrink-0 text-muted-foreground group-aria-expanded/trigger:inline" />
+        </AccordionPrimitive.Trigger>
+
         <div className="flex shrink-0 items-center gap-1">
-          {t.running && (
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              title={expanded ? "Hide log" : "Show log"}
-              onClick={onToggleLog}
-            >
-              <ScrollText className="size-4" />
-            </Button>
-          )}
           {t.running ? (
             <Button size="icon-sm" variant="destructive" title="Stop" onClick={onStop}>
               <Square className="size-4" />
@@ -118,19 +136,40 @@ function TunnelRow({
               <Button size="icon-sm" variant="outline" title="Start" onClick={onStart}>
                 <Play className="size-4" />
               </Button>
-              <Button size="sm" variant="ghost" onClick={onDelete}>
-                Delete
+              <Button size="icon-sm" variant="ghost" title="Delete" onClick={onDelete}>
+                <Trash2 className="size-4" />
               </Button>
             </>
           )}
         </div>
-      </div>
+      </AccordionPrimitive.Header>
 
-      {expanded && t.running && (
-        <pre className="max-h-32 overflow-y-auto rounded-md bg-muted p-2 text-[10px] whitespace-pre-wrap text-muted-foreground">
-          {log.length > 0 ? log.join("\n") : "No output yet."}
-        </pre>
-      )}
-    </li>
+      <AccordionContent>
+        {t.running ? (
+          <Tabs defaultValue="latency">
+            <TabsList className="h-7 w-full">
+              <TabsTrigger value="latency" className="gap-1 text-[11px]">
+                <Activity className="size-3.5" />
+                Latency
+              </TabsTrigger>
+              <TabsTrigger value="log" className="gap-1 text-[11px]">
+                <ScrollText className="size-3.5" />
+                Log
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="latency" className="mt-2">
+              <LatencyChart data={latencyHistory} />
+            </TabsContent>
+            <TabsContent value="log" className="mt-2">
+              <pre className="max-h-32 overflow-y-auto rounded-md bg-muted p-2 text-[10px] whitespace-pre-wrap text-muted-foreground">
+                {log.length > 0 ? log.join("\n") : "No output yet."}
+              </pre>
+            </TabsContent>
+          </Tabs>
+        ) : (
+          <p className="text-[10px] text-muted-foreground">Stopped. Start it to see live status.</p>
+        )}
+      </AccordionContent>
+    </AccordionItem>
   );
 }
