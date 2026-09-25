@@ -1,7 +1,7 @@
 {
   "name": "mapper",
   "private": true,
-  "version": "0.0.2",
+  "version": "0.0.3",
   "scripts": {
     "dev": "pnpm --filter @mapper/menubar tauri dev",
     "build": "pnpm --filter @mapper/menubar tauri build",

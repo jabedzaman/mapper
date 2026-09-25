@@ -2100,7 +2100,7 @@ dependencies = [
 
 [[package]]
 name = "mapper"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "ctrlc",
  "dirs 5.0.1",
