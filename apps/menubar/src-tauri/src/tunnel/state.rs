@@ -144,6 +144,8 @@ impl TunnelState {
             connected_secs: None,
             retry_attempt: None,
             retry_in_secs: None,
+            bytes_received: None,
+            bytes_sent: None,
         })
     }
 
@@ -262,7 +264,7 @@ impl TunnelState {
 
         // 3. Build the view. Running entries get a fresh port probe;
         //    Retrying entries report their countdown instead.
-        let view: Vec<TunnelInfo> = tunnels
+        let mut view: Vec<TunnelInfo> = tunnels
             .iter_mut()
             .map(|(id, handle)| match &handle.runtime {
                 Runtime::Running { pid, .. } => {
@@ -292,6 +294,11 @@ impl TunnelState {
                         connected_secs,
                         retry_attempt: None,
                         retry_in_secs: None,
+                        // Filled in below, once the tunnels lock is
+                        // released — sampling shells out to a subprocess
+                        // and must never run while holding this lock.
+                        bytes_received: None,
+                        bytes_sent: None,
                     }
                 }
                 Runtime::Retrying { attempt, next_attempt, .. } => TunnelInfo {
@@ -306,11 +313,28 @@ impl TunnelState {
                     connected_secs: None,
                     retry_attempt: Some(*attempt + 1),
                     retry_in_secs: Some(next_attempt.saturating_duration_since(now).as_secs()),
+                    bytes_received: None,
+                    bytes_sent: None,
                 },
             })
             .collect();
         drop(tunnels);
         self.update_badge();
+
+        // Bandwidth sampling shells out to a subprocess (nettop/ss) and,
+        // rarely, that can hang — bounded by a timeout in `platform`, but
+        // even a bounded delay must never happen while the tunnels lock
+        // above is held, or every other command (start/stop/toggle) stalls
+        // behind it too. Sampled here, after the lock is released.
+        for info in view.iter_mut() {
+            if let Some(pid) = info.pid {
+                if let Some((rx, tx)) = crate::platform::sample_bytes(pid) {
+                    info.bytes_received = Some(rx);
+                    info.bytes_sent = Some(tx);
+                }
+            }
+        }
+
         view
     }
 

@@ -39,6 +39,7 @@ starts only after you confirm.
 - [x] Per-tunnel live status (connecting / connected / retrying) — probes the local port each poll; retrying added alongside auto-reconnect below
 - [x] Show ssh stderr/log tail for a running tunnel, not just on death — background reader keeps a 200-line ring buffer, viewable via the per-tunnel "Log" toggle
 - [x] Latency/health check ping on the forwarded port — same probe reports round-trip ms next to the host
+- [x] Track per-tunnel upload/download totals — sampled each poll from the OS (macOS via `nettop`, measured and fixed to skip its slow reverse-DNS lookup; Linux via `ss`, unverified — no Linux box to test against; unsupported on Windows, no built-in per-process counter without ETW). Shown next to latency in the tunnel row and in its Details tab
 - [ ] Configurable ssh options per tunnel (ServerAliveInterval, compression, etc.) instead of fixed defaults
 - [x] Detect and warn about stale/orphaned ssh processes from a previous crashed run — scanned on launch, shown as a banner with a kill-all action
 
@@ -53,6 +54,12 @@ starts only after you confirm.
 - [x] Confirm before killing a process on "kill port & retry" (show what's using it first) — failure banner looks up the port's owner(s) via `lsof`/`ps` and shows pid + command before an explicit "Kill & retry" confirmation
 - [ ] Passphrase-protected key support (prompt via macOS Keychain instead of failing BatchMode)
 - [ ] Audit log of tunnels started/stopped with timestamps
+
+## Platform support
+
+- [x] Windows/Linux support for core process management — port-owner lookup, kill-by-pid, and orphan-ssh detection abstracted behind a `platform` module: macOS/Linux share `lsof`/`ps`/`kill`, Windows uses PowerShell (`Get-NetTCPConnection`/`Get-CimInstance`/`taskkill`); `open`-crate for cross-platform URL/browser opening; `ctrlc` for cross-platform shutdown signals (SIGINT/SIGTERM on Unix, console-close events on Windows). Windows path is unverified — no Windows box to actually build/run it on yet
+- [ ] Windows/Linux installer packaging — bundle targets are still macOS-only (`.app`/`.dmg`); Windows needs `nsis`/`msi`, Linux needs `deb`/`appimage`/`rpm`, each with their own icon formats and CI setup
+- [ ] Tray/window chrome verified live on Windows/Linux (traffic-light padding is already conditional on macOS detection, but untested outside this Mac)
 
 ## Packaging / distribution
 

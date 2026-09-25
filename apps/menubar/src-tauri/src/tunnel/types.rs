@@ -28,6 +28,11 @@ pub struct TunnelInfo {
     /// Set only while `status` is `Retrying`.
     pub retry_attempt: Option<u32>,
     pub retry_in_secs: Option<u64>,
+    /// Cumulative bytes since this connection attempt started, sampled
+    /// best-effort from the OS. `None` when not running or when this
+    /// platform has no way to sample it.
+    pub bytes_received: Option<u64>,
+    pub bytes_sent: Option<u64>,
 }
 
 #[derive(Serialize, Clone, Debug)]

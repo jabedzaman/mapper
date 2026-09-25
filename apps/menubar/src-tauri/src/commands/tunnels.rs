@@ -26,6 +26,8 @@ pub struct TunnelView {
     pub pid: Option<u32>,
     pub retry_attempt: Option<u32>,
     pub retry_in_secs: Option<u64>,
+    pub bytes_received: Option<u64>,
+    pub bytes_sent: Option<u64>,
 }
 
 #[tauri::command]
@@ -62,6 +64,8 @@ pub fn list_tunnels(
                 pid: live.as_ref().and_then(|l| l.pid),
                 retry_attempt: live.as_ref().and_then(|l| l.retry_attempt),
                 retry_in_secs: live.as_ref().and_then(|l| l.retry_in_secs),
+                bytes_received: live.as_ref().and_then(|l| l.bytes_received),
+                bytes_sent: live.as_ref().and_then(|l| l.bytes_sent),
             }
         })
         .collect();
@@ -107,6 +111,8 @@ pub fn start_tunnel(
             pid: info.pid,
             retry_attempt: info.retry_attempt,
             retry_in_secs: info.retry_in_secs,
+            bytes_received: info.bytes_received,
+            bytes_sent: info.bytes_sent,
         }),
         Err(e) => {
             // Never actually launched — don't leave it persisted as running.
@@ -171,6 +177,8 @@ pub fn update_tunnel(
             pid: None,
             retry_attempt: None,
             retry_in_secs: None,
+            bytes_received: None,
+            bytes_sent: None,
         });
     }
 
@@ -189,6 +197,8 @@ pub fn update_tunnel(
             pid: info.pid,
             retry_attempt: info.retry_attempt,
             retry_in_secs: info.retry_in_secs,
+            bytes_received: info.bytes_received,
+            bytes_sent: info.bytes_sent,
         }),
         Err(e) => {
             let _ = saved.set_running(&updated.id, false);

@@ -63,6 +63,18 @@ function statusDotClass(t: Tunnel): string {
   return "animate-pulse bg-amber-500";
 }
 
+function fmtBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)}${units[unit]}`;
+}
+
 function fmtDuration(secs: number): string {
   if (secs < 60) return `${secs}s`;
   const m = Math.floor(secs / 60);
@@ -134,6 +146,13 @@ function TunnelRow({
                 ? ` · retrying in ${t.retryInSecs}s (attempt ${t.retryAttempt}/6)`
                 : t.running && t.latencyMs != null && ` · ${t.latencyMs.toFixed(2)}ms`}
               {t.connectedSecs != null && ` · connected ${fmtDuration(t.connectedSecs)}`}
+              {t.running && (t.bytesReceived != null || t.bytesSent != null) && (
+                <>
+                  {" · "}
+                  <span title="Downloaded">↓{fmtBytes(t.bytesReceived ?? 0)}</span>{" "}
+                  <span title="Uploaded">↑{fmtBytes(t.bytesSent ?? 0)}</span>
+                </>
+              )}
             </span>
           </div>
           <ChevronDown className="size-4 shrink-0 text-muted-foreground group-aria-expanded/trigger:hidden" />
@@ -208,6 +227,8 @@ function TunnelRow({
                   value={t.latencyMs != null ? `${t.latencyMs.toFixed(2)}ms` : "—"}
                 />
                 <DetailRow label="PID" value={t.pid != null ? String(t.pid) : "—"} />
+                <DetailRow label="Downloaded" value={t.bytesReceived != null ? fmtBytes(t.bytesReceived) : "—"} />
+                <DetailRow label="Uploaded" value={t.bytesSent != null ? fmtBytes(t.bytesSent) : "—"} />
               </dl>
             </TabsContent>
             <TabsContent value="log" className="mt-2">

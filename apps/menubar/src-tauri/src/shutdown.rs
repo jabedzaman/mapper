@@ -1,29 +1,24 @@
-use signal_hook::consts::{SIGINT, SIGTERM};
-use signal_hook::iterator::Signals;
 use tauri::{App, Manager};
 
 use crate::tunnel::TunnelState;
 
 /// Quit via the app's own Quit button and normal window-manager exits are
 /// already handled by Tauri's event loop. This covers the paths that
-/// bypass it entirely — `kill <pid>`, logout, Activity Monitor "Quit" —
-/// which would otherwise orphan the `ssh` child processes.
+/// bypass it entirely — `kill <pid>`/logout/Activity Monitor "Quit" on
+/// Unix, console close/logoff/shutdown on Windows — which would otherwise
+/// orphan the `ssh` child processes. `ctrlc` installs the right handler
+/// for whichever platform this is (POSIX signals vs
+/// `SetConsoleCtrlHandler`) behind one API.
 ///
-/// SIGKILL can't be caught by any process — a `kill -9` is the one
-/// external-termination path this can't clean up after, and that's an OS
-/// guarantee, not a gap to work around.
-pub fn setup_signal_handler(app: &App) -> std::io::Result<()> {
-    let mut signals = Signals::new([SIGTERM, SIGINT])?;
+/// SIGKILL/TerminateProcess can't be caught by any process — those are
+/// the one external-termination paths this can't clean up after, and
+/// that's an OS guarantee, not a gap to work around.
+pub fn setup_signal_handler(app: &App) -> Result<(), ctrlc::Error> {
     let handle = app.handle().clone();
-
-    std::thread::spawn(move || {
-        if signals.forever().next().is_some() {
-            handle.state::<TunnelState>().stop_all();
-            handle.exit(0);
-        }
-    });
-
-    Ok(())
+    ctrlc::set_handler(move || {
+        handle.state::<TunnelState>().stop_all();
+        handle.exit(0);
+    })
 }
 
 /// Covers the other kind of "crash": a Rust panic in this process (a

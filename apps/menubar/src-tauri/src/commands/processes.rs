@@ -1,5 +1,3 @@
-use std::process::Command;
-
 use tauri::State;
 
 use crate::tunnel::{self, OrphanedProcess, TunnelState};
@@ -23,15 +21,9 @@ pub fn open_in_browser(local_port: u16) -> Result<(), String> {
 
 /// Opens an arbitrary URL in the default browser — used for "Report a bug"
 /// linking out to GitHub, but generic so it isn't tied to that one caller.
+/// `open::that` already handles macOS/Windows/Linux on its own, so there's
+/// no platform branching to do here.
 #[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
-    let status = Command::new("open")
-        .arg(&url)
-        .status()
-        .map_err(|e| format!("failed to open url: {e}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("failed to open url: exited with {status}"))
-    }
+    open::that(&url).map_err(|e| format!("failed to open url: {e}"))
 }

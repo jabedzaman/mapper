@@ -28,6 +28,10 @@ export interface Tunnel {
   /** Set only while `status` is "retrying". */
   retryAttempt: number | null;
   retryInSecs: number | null;
+  /** Cumulative bytes since this connection attempt started; null when not
+   * running or when the platform has no way to sample it (e.g. Windows). */
+  bytesReceived: number | null;
+  bytesSent: number | null;
 }
 
 export interface TunnelFailure {
