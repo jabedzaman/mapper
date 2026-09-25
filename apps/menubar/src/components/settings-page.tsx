@@ -1,17 +1,12 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Bug, ChevronLeft, Download, FileText, Power, Upload } from "lucide-react";
-import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { api } from "../lib/api";
 import { usePollInterval, MIN_POLL_INTERVAL_MS, MAX_POLL_INTERVAL_MS } from "../hooks/use-poll-interval";
-
-// macOS never re-prompts once denied — from then on the only way back is
-// the OS Notifications settings pane, so "denied" gets a link there
-// instead of a switch the app has no power to flip.
-type NotificationPermission = "granted" | "denied" | "default";
+import type { NotificationPermission } from "../hooks/use-app-preferences";
 
 const GITHUB_REPO = "https://github.com/jabedzaman/mapper";
 
@@ -22,6 +17,12 @@ interface Props {
   canExport: boolean;
   onChangelog: () => void;
   error: string | null;
+  showBadge: boolean;
+  toggleBadge: (next: boolean) => void;
+  launchAtLogin: boolean;
+  toggleLaunchAtLogin: (next: boolean) => void;
+  notifPermission: NotificationPermission;
+  enableNotifications: () => void;
 }
 
 function SectionLabel({ children }: { children: string }) {
@@ -61,36 +62,23 @@ function SettingsRow({
   );
 }
 
-export function SettingsPage({ onBack, onExport, onImport, canExport, onChangelog, error }: Props) {
+export function SettingsPage({
+  onBack,
+  onExport,
+  onImport,
+  canExport,
+  onChangelog,
+  error,
+  showBadge,
+  toggleBadge,
+  launchAtLogin,
+  toggleLaunchAtLogin,
+  notifPermission,
+  enableNotifications,
+}: Props) {
   const { intervalMs, setIntervalMs } = usePollInterval();
   const seconds = Math.round(intervalMs / 1000);
   const [intervalOpen, setIntervalOpen] = useState<string[]>([]);
-  const [showBadge, setShowBadge] = useState(true);
-  const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
-
-  useEffect(() => {
-    api
-      .getShowTrayBadge()
-      .then(setShowBadge)
-      .catch(() => {});
-    isPermissionGranted()
-      .then((granted) => setNotifPermission(granted ? "granted" : "default"))
-      .catch(() => {});
-  }, []);
-
-  async function enableNotifications() {
-    const result = await requestPermission();
-    setNotifPermission(result);
-  }
-
-  async function toggleBadge(next: boolean) {
-    setShowBadge(next);
-    try {
-      await api.setShowTrayBadge(next);
-    } catch {
-      setShowBadge(!next);
-    }
-  }
 
   function reportBug() {
     const title = encodeURIComponent("bug: ");
@@ -121,29 +109,27 @@ export function SettingsPage({ onBack, onExport, onImport, canExport, onChangelo
 
             <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2.5">
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium">Notifications</p>
+                <p className="text-xs font-medium">Launch at login</p>
                 <p className="mt-0.5 text-[10px] text-muted-foreground">
-                  {notifPermission === "denied"
-                    ? "Blocked in macOS Settings — enable Mapper there to get alerts when a tunnel dies."
-                    : "Alert when a tunnel gives up reconnecting for good."}
+                  Start Mapper automatically when you log in.
                 </p>
               </div>
-              {notifPermission === "granted" ? (
-                <Switch checked disabled />
-              ) : notifPermission === "denied" ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => api.openUrl("x-apple.systempreferences:com.apple.preference.notifications")}
-                >
-                  Open Settings
-                </Button>
-              ) : (
+              <Switch checked={launchAtLogin} onCheckedChange={toggleLaunchAtLogin} />
+            </div>
+
+            {notifPermission !== "granted" && (
+              <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium">Notifications</p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    Alert when a tunnel gives up reconnecting for good.
+                  </p>
+                </div>
                 <Button variant="secondary" size="sm" onClick={enableNotifications}>
                   Enable
                 </Button>
-              )}
-            </div>
+              </div>
+            )}
 
             <Accordion
               value={intervalOpen}
@@ -161,8 +147,8 @@ export function SettingsPage({ onBack, onExport, onImport, canExport, onChangelo
                       value={[seconds]}
                       min={MIN_POLL_INTERVAL_MS / 1000}
                       max={MAX_POLL_INTERVAL_MS / 1000}
-                      step={1}
-                      onValueChange={(v) => setIntervalMs((v as number[])[0] * 1000)}
+                      step={5}
+                      onValueChange={(v) => setIntervalMs((Array.isArray(v) ? v[0] : v) * 1000)}
                     />
                     <p className="mt-2 text-[10px] text-muted-foreground">
                       How often tunnel status, latency, and the New Tunnel host check refresh.
