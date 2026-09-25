@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { Header } from "./components/header";
 import { AddTunnelPage } from "./components/add-tunnel-page";
 import { SettingsPage } from "./components/settings-page";
@@ -35,6 +36,16 @@ export default function App() {
   const [view, setView] = useState<View>("home");
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingTunnel = tunnels.find((t) => t.id === editingId) ?? null;
+
+  // Ask for notification permission once, on first-ever launch, so tunnel-
+  // death alerts work without a trip to Settings. Only fires when macOS
+  // hasn't recorded a decision yet — a prior denial or grant is left alone,
+  // since re-prompting past that is either a no-op or just annoying.
+  useEffect(() => {
+    isPermissionGranted().then((granted) => {
+      if (!granted) void requestPermission();
+    });
+  }, []);
 
   async function handleAdd(spec: StartTunnelSpec) {
     const ok = await start(spec);

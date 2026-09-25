@@ -1,8 +1,24 @@
 import { useEffect, useState } from "react";
 import { save, open } from "@tauri-apps/plugin-dialog";
+import { isPermissionGranted, sendNotification } from "@tauri-apps/plugin-notification";
 import { api, type StartTunnelSpec } from "../lib/api";
 import { usePollInterval } from "./use-poll-interval";
 import type { Tunnel, TunnelFailure } from "../types";
+
+/// Fire a system notification per tunnel that just gave up for good, so a
+/// dead tunnel gets noticed even with the popover closed. Permission is
+/// opted into from Settings, not prompted for here — if it's not granted
+/// yet, these are silently skipped.
+async function notifyFailures(failures: TunnelFailure[]) {
+  if (!(await isPermissionGranted())) return;
+
+  for (const f of failures) {
+    sendNotification({
+      title: "Tunnel disconnected",
+      body: `${f.sshHost}:${f.localPort} → ${f.remoteHost}:${f.remotePort} ${f.message}`,
+    });
+  }
+}
 
 export function useTunnels() {
   const { intervalMs } = usePollInterval();
@@ -18,6 +34,7 @@ export function useTunnels() {
       if (failures.length > 0) {
         setError(null);
         setFailure(failures[failures.length - 1]);
+        void notifyFailures(failures);
       }
     });
   };
