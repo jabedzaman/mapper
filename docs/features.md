@@ -28,7 +28,7 @@ starts only after you confirm.
 - [x] Show active tunnel count as a badge/text next to the tray icon — backend keeps the tray title in sync with the live process count (updates on start/stop/poll-reap/quit), clears at zero, template icon stays monochrome; toggleable via a "Tray badge" switch in Settings (persisted in `settings.json`)
 - [x] Menu-bar dropdown list of active tunnels (quick view without opening the window) — native tray menu grouped into Running/Stopped, each tunnel a checkbox item that starts/stops it directly; content only rebuilds when it actually changes (rebuilding while open forces macOS to close it)
 - [ ] Global keyboard shortcut to open/close the popover
-- [ ] Launch at login toggle
+- [x] Launch at login toggle — `tauri-plugin-autostart` wired end to end: Settings switch reads/writes OS autostart state directly (no separate persisted setting needed, the OS is the source of truth)
 - [ ] Light/dark tray icon auto-switching refinement (already using template icon — verify on all wallpapers)
 - [x] Notifications (macOS notification center) when a tunnel dies unexpectedly — fires once a tunnel exhausts its retry backoff and gives up for good (not on every reconnect attempt); uses `tauri-plugin-notification`, requests OS permission lazily on first failure, best-effort if denied
 - [ ] Sound/visual indicator on tunnel failure
