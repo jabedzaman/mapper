@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { api } from "../lib/api";
 
@@ -7,40 +9,38 @@ interface Props {
   onBack: () => void;
 }
 
-/** Renders semantic-release's generated Markdown as plain styled blocks — no markdown-parser dependency needed for this narrow, predictable output shape. */
-function renderLine(line: string, key: number) {
-  const heading = line.match(/^(#{2,3})\s+(.*)$/);
-  if (heading) {
-    const [, hashes, text] = heading;
-    const stripped = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
-    return (
-      <p key={key} className={hashes.length === 2 ? "mt-3 text-xs font-semibold first:mt-0" : "mt-2 text-[11px] font-medium text-muted-foreground"}>
-        {stripped}
-      </p>
-    );
-  }
-
-  const bullet = line.match(/^[*-]\s+(.*)$/);
-  if (bullet) {
-    const stripped = bullet[1]
-      .replace(/\[([a-f0-9]{7,40})\]\([^)]+\)/g, "")
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-      .trim();
-    return (
-      <p key={key} className="pl-3 text-[11px] text-foreground/90">
-        {"– "}
-        {stripped}
-      </p>
-    );
-  }
-
-  if (!line.trim()) return null;
-  return (
-    <p key={key} className="text-[11px] text-muted-foreground">
-      {line}
+const components = {
+  h1: ({ children }: { children?: React.ReactNode }) => (
+    <p className="mt-3 text-xs font-semibold first:mt-0">{children}</p>
+  ),
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    <p className="mt-3 text-xs font-semibold first:mt-0">{children}</p>
+  ),
+  h3: ({ children }: { children?: React.ReactNode }) => (
+    <p className="mt-2 text-[11px] font-medium text-muted-foreground">{children}</p>
+  ),
+  ul: ({ children }: { children?: React.ReactNode }) => <div className="pl-3">{children}</div>,
+  li: ({ children }: { children?: React.ReactNode }) => (
+    <p className="text-[11px] text-foreground/90">
+      {"– "}
+      {children}
     </p>
-  );
-}
+  ),
+  p: ({ children }: { children?: React.ReactNode }) => (
+    <p className="text-[11px] text-muted-foreground">{children}</p>
+  ),
+  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+    <a href={href} target="_blank" rel="noreferrer" className="underline hover:text-foreground">
+      {children}
+    </a>
+  ),
+  code: ({ children }: { children?: React.ReactNode }) => (
+    <code className="rounded bg-muted px-1 py-0.5 text-[10px]">{children}</code>
+  ),
+  strong: ({ children }: { children?: React.ReactNode }) => (
+    <strong className="font-medium text-foreground">{children}</strong>
+  ),
+};
 
 export function ChangelogPage({ onBack }: Props) {
   const [text, setText] = useState<string | null>(null);
@@ -49,7 +49,7 @@ export function ChangelogPage({ onBack }: Props) {
   useEffect(() => {
     api
       .getChangelog()
-      .then(setText)
+      .then((full) => setText(full.replace(/\n# Changelog\b[\s\S]*$/, "")))
       .catch((e) => setError(String(e)));
   }, []);
 
@@ -65,7 +65,11 @@ export function ChangelogPage({ onBack }: Props) {
       <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-4 pb-4">
         {error && <p className="text-xs text-destructive">{error}</p>}
         {!error && text === null && <p className="text-xs text-muted-foreground">Loading…</p>}
-        {text?.split("\n").map((line, i) => renderLine(line, i))}
+        {text && (
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+            {text}
+          </ReactMarkdown>
+        )}
       </div>
     </div>
   );

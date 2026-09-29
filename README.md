@@ -28,6 +28,14 @@ Pick a host from your SSH config, set a local and remote port, and Mapper keeps 
 
 ## Installation
 
+### Homebrew
+
+```sh
+brew install --cask jabedzaman/mapper/mapper
+```
+
+### Manual
+
 Download the latest `Mapper.dmg` from the releases page.
 
 > [!NOTE]

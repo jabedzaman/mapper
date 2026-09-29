@@ -4,6 +4,7 @@ import { useAppPreferences } from "./hooks/use-app-preferences";
 import { AddTunnelPage } from "./components/add-tunnel-page";
 import { SettingsPage } from "./components/settings-page";
 import { ChangelogPage } from "./components/changelog-page";
+import { SshConfigPage } from "./components/ssh-config-page";
 import { FailureBanner } from "./components/failure-banner";
 import { OrphanBanner } from "./components/orphan-banner";
 import { TunnelList } from "./components/tunnel-list";
@@ -12,10 +13,10 @@ import { useTunnels } from "./hooks/use-tunnels";
 import { useOrphanedProcesses } from "./hooks/use-orphaned-processes";
 import type { StartTunnelSpec } from "./lib/api";
 
-type View = "home" | "add" | "edit" | "settings" | "changelog";
+type View = "home" | "add" | "edit" | "settings" | "changelog" | "sshConfig";
 
 export default function App() {
-  const hosts = useSshHosts();
+  const { hosts, refresh: refreshHosts } = useSshHosts();
   const {
     tunnels,
     error,
@@ -112,12 +113,17 @@ export default function App() {
           onImport={importFromFile}
           canExport={tunnels.length > 0}
           onChangelog={() => setView("changelog")}
+          onSshConfig={() => setView("sshConfig")}
           error={error}
           {...preferences}
         />
       )}
 
       {view === "changelog" && <ChangelogPage onBack={() => setView("settings")} />}
+
+      {view === "sshConfig" && (
+        <SshConfigPage onBack={() => setView("settings")} onSaved={refreshHosts} />
+      )}
 
       {view === "home" && (
         <>

@@ -49,6 +49,22 @@ export interface OrphanedProcess {
   command: string;
 }
 
+export interface HostBlock {
+  id: string;
+  patterns: string;
+  hostname: string;
+  user: string;
+  port: string;
+  proxyJump: string;
+  identityFiles: string;
+  extra: string;
+}
+
+export interface ConfigDoc {
+  preamble: string;
+  hosts: HostBlock[];
+}
+
 export interface HostCheck {
   reachable: boolean;
   latencyMs: number | null;

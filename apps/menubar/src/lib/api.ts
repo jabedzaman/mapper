@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { HostCheck, OrphanedProcess, SshHost, Tunnel, TunnelFailure } from "../types";
+import type { ConfigDoc, HostCheck, OrphanedProcess, SshHost, Tunnel, TunnelFailure } from "../types";
 
 export interface StartTunnelSpec {
   sshHost: string;
@@ -12,6 +12,10 @@ export interface StartTunnelSpec {
 export const api = {
   listSshHosts: () => invoke<SshHost[]>("list_ssh_hosts"),
   checkSshHost: (alias: string) => invoke<HostCheck>("check_ssh_host", { alias }),
+  getSshConfig: () => invoke<string>("get_ssh_config"),
+  saveSshConfig: (contents: string) => invoke<void>("save_ssh_config", { contents }),
+  getSshConfigDoc: () => invoke<ConfigDoc>("get_ssh_config_doc"),
+  saveSshConfigDoc: (doc: ConfigDoc) => invoke<void>("save_ssh_config_doc", { doc }),
   listTunnels: () => invoke<Tunnel[]>("list_tunnels"),
   startTunnel: (spec: StartTunnelSpec) => invoke<Tunnel>("start_tunnel", spec),
   startSavedTunnel: (id: string) => invoke<Tunnel>("start_saved_tunnel", { id }),

@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::process::Command;
@@ -147,6 +147,190 @@ pub fn list_hosts() -> Vec<SshHost> {
     }
 
     hosts
+}
+
+/// Reads `~/.ssh/config` raw, for the in-app editor. Empty string if the
+/// file doesn't exist yet (a fresh editor starts blank rather than erroring).
+pub fn read_raw() -> Result<String, String> {
+    let home = dirs::home_dir().ok_or("could not determine home directory")?;
+    let path = home.join(".ssh").join("config");
+    match fs::read_to_string(&path) {
+        Ok(s) => Ok(s),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Overwrites `~/.ssh/config` with editor contents. Backs up whatever was
+/// there to `config.bak` first (best-effort, one rolling backup — not
+/// versioned history) and writes via a temp file + rename so a crash or
+/// full disk mid-write can't leave a half-written config behind.
+pub fn write_raw(contents: &str) -> Result<(), String> {
+    let home = dirs::home_dir().ok_or("could not determine home directory")?;
+    let ssh_dir = home.join(".ssh");
+    fs::create_dir_all(&ssh_dir).map_err(|e| e.to_string())?;
+
+    let path = ssh_dir.join("config");
+    if path.exists() {
+        fs::copy(&path, ssh_dir.join("config.bak")).map_err(|e| e.to_string())?;
+    }
+
+    let tmp_path = ssh_dir.join("config.tmp");
+    fs::write(&tmp_path, contents).map_err(|e| e.to_string())?;
+    fs::rename(&tmp_path, &path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// One `Host` block, split into the fields the form UI edits directly and
+/// an `extra` bucket for everything else in that block verbatim (comments,
+/// directives the form doesn't know about, and any known-key line that has
+/// a trailing `#comment` — lifting those into a field would silently eat
+/// the comment on save, so they're left alone instead).
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HostBlock {
+    pub id: String,
+    /// The `Host` line's value, space-separated patterns, as typed.
+    pub patterns: String,
+    pub hostname: String,
+    pub user: String,
+    pub port: String,
+    pub proxy_jump: String,
+    /// One path per line, as typed (not `~`-expanded).
+    pub identity_files: String,
+    /// Remaining raw lines from this block, verbatim, newline-joined.
+    pub extra: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigDoc {
+    /// Raw lines before the first `Host` line (e.g. `Include`, global
+    /// `Host *` isn't special-cased — it's just another block). Always
+    /// round-tripped verbatim; the form has no UI for it.
+    pub preamble: String,
+    pub hosts: Vec<HostBlock>,
+}
+
+fn has_inline_comment(line: &str) -> bool {
+    line.contains('#')
+}
+
+/// Parses `~/.ssh/config` into a form-editable structure. Every `Host`
+/// line starts a new block that owns every line up to the next `Host`
+/// line (or EOF) — so nothing physically inside a block can be lost, even
+/// stuff the form doesn't understand (`Match`, unknown keys, comments).
+pub fn parse_doc() -> Result<ConfigDoc, String> {
+    let raw = read_raw()?;
+    let mut preamble_lines: Vec<&str> = Vec::new();
+    let mut hosts: Vec<HostBlock> = Vec::new();
+    let mut current: Option<HostBlock> = None;
+    let mut next_id: usize = 0;
+    let mut identity_files: Vec<String> = Vec::new();
+    let mut extra_lines: Vec<&str> = Vec::new();
+
+    fn finish_block(block: &mut Option<HostBlock>, identity_files: &mut Vec<String>, extra_lines: &mut Vec<&str>) {
+        if let Some(b) = block {
+            b.identity_files = identity_files.join("\n");
+            b.extra = extra_lines.join("\n");
+        }
+        identity_files.clear();
+        extra_lines.clear();
+    }
+
+    for raw_line in raw.lines() {
+        let trimmed = raw_line.trim();
+        let mut parts = trimmed.splitn(2, char::is_whitespace);
+        let key_lower = parts.next().unwrap_or("").to_ascii_lowercase();
+        let value = parts.next().unwrap_or("").trim();
+
+        if key_lower == "host" {
+            finish_block(&mut current, &mut identity_files, &mut extra_lines);
+            if let Some(b) = current.take() {
+                hosts.push(b);
+            }
+            current = Some(HostBlock {
+                id: format!("h{next_id}"),
+                patterns: value.to_string(),
+                ..Default::default()
+            });
+            next_id += 1;
+            continue;
+        }
+
+        let Some(block) = current.as_mut() else {
+            preamble_lines.push(raw_line);
+            continue;
+        };
+
+        if trimmed.is_empty() || trimmed.starts_with('#') || has_inline_comment(trimmed) {
+            extra_lines.push(raw_line);
+            continue;
+        }
+
+        match key_lower.as_str() {
+            "hostname" if block.hostname.is_empty() => block.hostname = value.to_string(),
+            "user" if block.user.is_empty() => block.user = value.to_string(),
+            "port" if block.port.is_empty() => block.port = value.to_string(),
+            "proxyjump" if block.proxy_jump.is_empty() => block.proxy_jump = value.to_string(),
+            "identityfile" => identity_files.push(value.to_string()),
+            _ => extra_lines.push(raw_line),
+        }
+    }
+    finish_block(&mut current, &mut identity_files, &mut extra_lines);
+    if let Some(b) = current.take() {
+        hosts.push(b);
+    }
+
+    Ok(ConfigDoc { preamble: preamble_lines.join("\n"), hosts })
+}
+
+/// Renders a `ConfigDoc` back to `~/.ssh/config` text. Known fields come
+/// first in a fixed order, then `extra` verbatim — so a block edited only
+/// through the form keeps its comments and unknown directives intact.
+pub fn serialize_doc(doc: &ConfigDoc) -> String {
+    let mut out = String::new();
+    if !doc.preamble.trim().is_empty() {
+        out.push_str(doc.preamble.trim_end());
+        out.push_str("\n\n");
+    }
+
+    for block in &doc.hosts {
+        out.push_str("Host ");
+        out.push_str(block.patterns.trim());
+        out.push('\n');
+        if !block.hostname.trim().is_empty() {
+            out.push_str(&format!("    HostName {}\n", block.hostname.trim()));
+        }
+        if !block.user.trim().is_empty() {
+            out.push_str(&format!("    User {}\n", block.user.trim()));
+        }
+        if !block.port.trim().is_empty() {
+            out.push_str(&format!("    Port {}\n", block.port.trim()));
+        }
+        if !block.proxy_jump.trim().is_empty() {
+            out.push_str(&format!("    ProxyJump {}\n", block.proxy_jump.trim()));
+        }
+        for line in block.identity_files.lines() {
+            if !line.trim().is_empty() {
+                out.push_str(&format!("    IdentityFile {}\n", line.trim()));
+            }
+        }
+        for line in block.extra.lines() {
+            if !line.trim().is_empty() {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        out.push('\n');
+    }
+
+    let trimmed = out.trim_end().to_string();
+    if trimmed.is_empty() {
+        trimmed
+    } else {
+        trimmed + "\n"
+    }
 }
 
 /// Resolves an alias/host string to the (hostname, port) to actually dial:

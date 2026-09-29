@@ -44,6 +44,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_ssh_hosts,
             commands::check_ssh_host,
+            commands::get_ssh_config,
+            commands::save_ssh_config,
+            commands::get_ssh_config_doc,
+            commands::save_ssh_config_doc,
             commands::list_tunnels,
             commands::start_tunnel,
             commands::start_saved_tunnel,

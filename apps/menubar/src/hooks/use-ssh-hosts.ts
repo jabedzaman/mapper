@@ -1,13 +1,17 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import type { SshHost } from "../types";
 
 export function useSshHosts() {
   const [hosts, setHosts] = useState<SshHost[]>([]);
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
     api.listSshHosts().then((h) => setHosts(h));
   }, []);
 
-  return hosts;
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  return { hosts, refresh };
 }

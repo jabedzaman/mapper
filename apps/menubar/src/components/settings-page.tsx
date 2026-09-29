@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bug, ChevronLeft, Download, FileText, Power, Upload } from "lucide-react";
+import { Bug, ChevronLeft, Download, FileText, Power, Settings2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -16,6 +16,7 @@ interface Props {
   onImport: () => void;
   canExport: boolean;
   onChangelog: () => void;
+  onSshConfig: () => void;
   error: string | null;
   showBadge: boolean;
   toggleBadge: (next: boolean) => void;
@@ -68,6 +69,7 @@ export function SettingsPage({
   onImport,
   canExport,
   onChangelog,
+  onSshConfig,
   error,
   showBadge,
   toggleBadge,
@@ -179,6 +181,18 @@ export function SettingsPage({
             />
           </div>
           {error && <p className="px-1 text-xs text-destructive">{error}</p>}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <SectionLabel>SSH</SectionLabel>
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <SettingsRow
+              icon={<Settings2 className="size-4" />}
+              label="Edit SSH config"
+              description="Edit ~/.ssh/config directly, right from the app."
+              onClick={onSshConfig}
+            />
+          </div>
         </div>
 
         <div className="flex flex-col gap-1.5">
