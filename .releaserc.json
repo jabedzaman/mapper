@@ -48,6 +48,12 @@
       {
         "assets": [".release/*.zip", ".release/*.dmg"]
       }
+    ],
+    [
+      "@semantic-release/exec",
+      {
+        "publishCmd": "pnpm release:homebrew ${nextRelease.version}"
+      }
     ]
   ]
 }

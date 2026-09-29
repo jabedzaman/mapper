@@ -6,6 +6,7 @@
     "dev": "pnpm --filter @mapper/menubar tauri dev",
     "build": "pnpm --filter @mapper/menubar tauri build",
     "release:prepare": "node scripts/release-prepare.mjs",
+    "release:homebrew": "node scripts/update-homebrew-tap.mjs",
     "prepare": "husky",
     "commitlint": "commitlint --config package.json"
   },

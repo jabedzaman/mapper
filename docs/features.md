@@ -63,6 +63,7 @@ starts only after you confirm.
 
 ## Packaging / distribution
 
-- [ ] Code-sign + notarize for distribution outside dev machine
+- [x] Code-sign for distribution outside dev machine — ad-hoc signed (`signingIdentity: "-"` in `tauri.conf.json`), no Apple Developer ID yet so no notarization; fixes "app is damaged" on Apple Silicon but downloaded builds still need Gatekeeper quarantine cleared (handled by the tap's cask postflight)
+- [ ] Notarize with a real Developer ID cert (needs paid Apple Developer account)
 - [ ] Auto-update (Tauri updater)
-- [ ] Homebrew cask
+- [x] Homebrew cask — personal tap at [jabedzaman/homebrew-mapper](https://github.com/jabedzaman/homebrew-mapper), `release:homebrew` script auto-updates the cask's version/sha256 on every semantic-release publish (needs `HOMEBREW_TAP_TOKEN` repo secret)
