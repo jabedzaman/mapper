@@ -1,3 +1,11 @@
+## [0.0.4](https://github.com/jabedzaman/mapper/compare/v0.0.3...v0.0.4) (2026-09-29)
+
+
+### Features
+
+* **mapper:** ad-hoc code-sign builds and auto-publish a homebrew cask ([f290640](https://github.com/jabedzaman/mapper/commit/f29064090cc5b29fcd67804f3b6e95eb1f3a1ac9))
+* **mapper:** warn when a tunnel host has no usable ssh identity ([c6b8c6b](https://github.com/jabedzaman/mapper/commit/c6b8c6ba840da6c6156d2a2a0f7fa5ce4a0254b0))
+
 ## [0.0.3](https://github.com/jabedzaman/mapper/compare/v0.0.2...v0.0.3) (2026-09-25)
 
 
