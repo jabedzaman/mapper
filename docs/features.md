@@ -19,7 +19,7 @@ starts only after you confirm.
 
 - [ ] Support `Include` directives in `~/.ssh/config` (multi-file configs)
 - [ ] Support `ProxyJump`/`ProxyCommand` hosts
-- [ ] Warn if selected host has no identity file / relies on agent with no keys loaded
+- [x] Warn if selected host has no identity file / relies on agent with no keys loaded — folded into the existing New Tunnel host-reachability check: no configured/default identity file on disk and no ssh-agent keys loaded (`ssh-add -l`) surfaces an inline warning
 - [ ] Manual host entry mode toggle (bypass ~/.ssh/config entirely, already partially there)
 - [ ] Edit ~/.ssh/config from within the app
 

@@ -53,4 +53,5 @@ export interface HostCheck {
   reachable: boolean;
   latencyMs: number | null;
   error: string | null;
+  authWarning: string | null;
 }

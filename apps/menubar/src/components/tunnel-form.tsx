@@ -181,6 +181,10 @@ export function TunnelForm({
         </div>
       )}
 
+      {hostCheck?.authWarning && (
+        <p className="text-[10px] text-amber-600 dark:text-amber-500">⚠ {hostCheck.authWarning}</p>
+      )}
+
       {children}
 
       <Button type="submit" disabled={starting} className="mt-1 w-full">
