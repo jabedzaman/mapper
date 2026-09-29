@@ -1,3 +1,10 @@
+## [0.0.5](https://github.com/jabedzaman/mapper/compare/v0.0.4...v0.0.5) (2026-09-29)
+
+
+### Features
+
+* **mapper:** add SSH config editor with form and raw modes ([430bd41](https://github.com/jabedzaman/mapper/commit/430bd41828fe85a8e9952607d8e12104e4ae9981))
+
 ## [0.0.4](https://github.com/jabedzaman/mapper/compare/v0.0.3...v0.0.4) (2026-09-29)
 
 
